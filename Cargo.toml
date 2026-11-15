@@ -2,12 +2,18 @@
 name = "url-to-apk"
 version = "0.1.0"
 edition = "2024"
+description = "Turn any website into an Android app or iOS app"
+repository = "https://github.com/SojebSikder/url-to-apk"
 
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 dirs = "7.0.0"
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25.10", default-features = false, features = [
+    "png",
+    "jpeg",
+    "webp",
+] }
 serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27.0"
 toml = "1.2.1"

@@ -1,9 +1,9 @@
 [package]
-name = "url-to-apk"
+name = "url2apk"
 version = "0.1.0"
 edition = "2024"
 description = "Turn any website into an Android app or iOS app"
-repository = "https://github.com/SojebSikder/url-to-apk"
+repository = "https://github.com/SojebSikder/url2apk"
 
 [dependencies]
 anyhow = "1.0.104"

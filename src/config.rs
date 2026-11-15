@@ -205,7 +205,7 @@ pub struct AppOptions {
     #[arg(long, help_heading = "Build")]
     pub jdk: Option<PathBuf>,
 
-    /// Keystore used to sign the APK [default: auto-generated ~/.url-to-apk/default.keystore]
+    /// Keystore used to sign the APK [default: auto-generated ~/.url2apk/default.keystore]
     #[arg(long, help_heading = "Signing")]
     pub keystore: Option<PathBuf>,
 
@@ -727,7 +727,7 @@ const JAVA_KEYWORDS: &[&str] = &[
 
 pub fn init_template(url: &str) -> String {
     format!(
-        r##"# url-to-apk configuration. Build with: url-to-apk build
+        r##"# url2apk configuration. Build with: url2apk build
 # Every key is optional except `url`; CLI flags override values in this file.
 
 url = "{url}"
@@ -774,7 +774,7 @@ min_sdk = 21
 # sdk = "/path/to/Android/Sdk"
 # jdk = "/path/to/jdk"
 
-# --- Signing (default: auto-generated ~/.url-to-apk/default.keystore) ---
+# --- Signing (default: auto-generated ~/.url2apk/default.keystore) ---
 # keystore = "release.keystore"
 # key_alias = "release"
 # Passwords: set URL2APK_STORE_PASSWORD / URL2APK_KEY_PASSWORD env vars

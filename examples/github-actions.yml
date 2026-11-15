@@ -1,12 +1,12 @@
-# Builds the app described in url2apk.toml for Android and iOS with url-to-apk.
-# Copy to .github/workflows/ in your repo, or generate it with `url-to-apk init --ci github`.
-# Docs: https://github.com/SojebSikder/url-to-apk#build-on-github-actions
+# Builds the app described in url2apk.toml for Android and iOS with url2apk.
+# Copy to .github/workflows/ in your repo, or generate it with `url2apk init --ci github`.
+# Docs: https://github.com/SojebSikder/url2apk#build-on-github-actions
 #
 # Runs on tag pushes (v1.0.0, ...) and manually (Actions tab > Build apps > Run workflow).
 # Builds are uploaded as workflow artifacts and, for tags, attached to the GitHub Release.
 #
 # Secrets (Settings > Secrets and variables > Actions), all optional:
-#   ANDROID_KEYSTORE_B64    base64 of your keystore (create it once with `url-to-apk keygen`).
+#   ANDROID_KEYSTORE_B64    base64 of your keystore (create it once with `url2apk keygen`).
 #                           Without it every run uses a throwaway key, so a new APK can't
 #                           be installed over an older one.
 #   ANDROID_STORE_PASSWORD  keystore password
@@ -16,8 +16,8 @@
 #   IOS_PROFILE_B64         base64 of the .mobileprovision matching bundle_id in url2apk.toml
 #                           Without the iOS secrets you get an ad-hoc signed .ipa (re-sign it
 #                           with Sideloadly, AltStore, ... to install it on a device).
-#   URL_TO_APK_TOKEN        only while the url-to-apk repo is private: a token that can read it
-#                           (fine-grained, read-only Contents access to SojebSikder/url-to-apk)
+#   URL2APK_TOKEN        only while the url2apk repo is private: a token that can read it
+#                           (fine-grained, read-only Contents access to SojebSikder/url2apk)
 #
 # Make base64 values with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux).
 # Don't need one platform? Delete its job.
@@ -34,8 +34,8 @@ permissions:
 
 env:
   URL2APK_CONFIG: url2apk.toml
-  URL_TO_APK_REPO: SojebSikder/url-to-apk
-  URL_TO_APK_VERSION: latest # or a release tag such as v0.1.0, for reproducible builds
+  URL2APK_REPO: SojebSikder/url2apk
+  URL2APK_VERSION: latest # or a release tag such as v0.1.0, for reproducible builds
 
 jobs:
   android:
@@ -48,12 +48,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install url-to-apk
+      - name: Install url2apk
         env:
-          GH_TOKEN: ${{ secrets.URL_TO_APK_TOKEN || github.token }}
-          TOKEN: ${{ secrets.URL_TO_APK_TOKEN }}
+          GH_TOKEN: ${{ secrets.URL2APK_TOKEN || github.token }}
+          TOKEN: ${{ secrets.URL2APK_TOKEN }}
         run: |
-          # Prebuilt binary from the url-to-apk GitHub Releases; builds from source as a fallback.
+          # Prebuilt binary from the url2apk GitHub Releases; builds from source as a fallback.
           case "$RUNNER_OS-$RUNNER_ARCH" in
             Linux-X64) target=x86_64-unknown-linux-gnu ;;
             Linux-ARM64) target=aarch64-unknown-linux-gnu ;;
@@ -62,21 +62,21 @@ jobs:
             *) target=unknown ;;
           esac
           tag=""
-          if [ "$URL_TO_APK_VERSION" != "latest" ]; then tag="$URL_TO_APK_VERSION"; fi
-          dir="$RUNNER_TEMP/url-to-apk"
+          if [ "$URL2APK_VERSION" != "latest" ]; then tag="$URL2APK_VERSION"; fi
+          dir="$RUNNER_TEMP/url2apk"
           mkdir -p "$dir"
-          if gh release download $tag --repo "$URL_TO_APK_REPO" --pattern "url-to-apk-$target.tar.xz" --dir "$dir"; then
-            tar -xJf "$dir/url-to-apk-$target.tar.xz" -C "$dir"
-            bin="$(find "$dir" -type f -name url-to-apk | head -n 1)"
+          if gh release download $tag --repo "$URL2APK_REPO" --pattern "url2apk-$target.tar.xz" --dir "$dir"; then
+            tar -xJf "$dir/url2apk-$target.tar.xz" -C "$dir"
+            bin="$(find "$dir" -type f -name url2apk | head -n 1)"
             chmod +x "$bin"
             echo "$(dirname "$bin")" >> "$GITHUB_PATH"
           else
-            echo "::warning::No prebuilt url-to-apk for $target, building it from source"
+            echo "::warning::No prebuilt url2apk for $target, building it from source"
             if [ -n "$TOKEN" ]; then
               git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
               export CARGO_NET_GIT_FETCH_WITH_CLI=true
             fi
-            cargo install --locked --git "https://github.com/$URL_TO_APK_REPO" ${tag:+--tag "$tag"}
+            cargo install --locked --git "https://github.com/$URL2APK_REPO" ${tag:+--tag "$tag"}
           fi
 
       - name: Build APK
@@ -94,7 +94,7 @@ jobs:
             echo "::warning::ANDROID_KEYSTORE_B64 is not set: the APK is signed with a throwaway key and can't update earlier installs"
           fi
           # The run number makes the version code increase with every build.
-          url-to-apk build --config "$URL2APK_CONFIG" --platform android \
+          url2apk build --config "$URL2APK_CONFIG" --platform android \
             --version-code "${{ github.run_number }}" -o dist/app.apk "${signing[@]}"
 
       - uses: actions/upload-artifact@v4
@@ -113,12 +113,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install url-to-apk
+      - name: Install url2apk
         env:
-          GH_TOKEN: ${{ secrets.URL_TO_APK_TOKEN || github.token }}
-          TOKEN: ${{ secrets.URL_TO_APK_TOKEN }}
+          GH_TOKEN: ${{ secrets.URL2APK_TOKEN || github.token }}
+          TOKEN: ${{ secrets.URL2APK_TOKEN }}
         run: |
-          # Prebuilt binary from the url-to-apk GitHub Releases; builds from source as a fallback.
+          # Prebuilt binary from the url2apk GitHub Releases; builds from source as a fallback.
           case "$RUNNER_OS-$RUNNER_ARCH" in
             Linux-X64) target=x86_64-unknown-linux-gnu ;;
             Linux-ARM64) target=aarch64-unknown-linux-gnu ;;
@@ -127,21 +127,21 @@ jobs:
             *) target=unknown ;;
           esac
           tag=""
-          if [ "$URL_TO_APK_VERSION" != "latest" ]; then tag="$URL_TO_APK_VERSION"; fi
-          dir="$RUNNER_TEMP/url-to-apk"
+          if [ "$URL2APK_VERSION" != "latest" ]; then tag="$URL2APK_VERSION"; fi
+          dir="$RUNNER_TEMP/url2apk"
           mkdir -p "$dir"
-          if gh release download $tag --repo "$URL_TO_APK_REPO" --pattern "url-to-apk-$target.tar.xz" --dir "$dir"; then
-            tar -xJf "$dir/url-to-apk-$target.tar.xz" -C "$dir"
-            bin="$(find "$dir" -type f -name url-to-apk | head -n 1)"
+          if gh release download $tag --repo "$URL2APK_REPO" --pattern "url2apk-$target.tar.xz" --dir "$dir"; then
+            tar -xJf "$dir/url2apk-$target.tar.xz" -C "$dir"
+            bin="$(find "$dir" -type f -name url2apk | head -n 1)"
             chmod +x "$bin"
             echo "$(dirname "$bin")" >> "$GITHUB_PATH"
           else
-            echo "::warning::No prebuilt url-to-apk for $target, building it from source"
+            echo "::warning::No prebuilt url2apk for $target, building it from source"
             if [ -n "$TOKEN" ]; then
               git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
               export CARGO_NET_GIT_FETCH_WITH_CLI=true
             fi
-            cargo install --locked --git "https://github.com/$URL_TO_APK_REPO" ${tag:+--tag "$tag"}
+            cargo install --locked --git "https://github.com/$URL2APK_REPO" ${tag:+--tag "$tag"}
           fi
 
       - name: Build IPA
@@ -167,7 +167,7 @@ jobs:
           else
             echo "::warning::iOS signing secrets are not set: building an ad-hoc signed .ipa"
           fi
-          url-to-apk build --config "$URL2APK_CONFIG" --platform ios --simulator=false \
+          url2apk build --config "$URL2APK_CONFIG" --platform ios --simulator=false \
             --version-code "${{ github.run_number }}" -o dist/app.ipa "${signing[@]}"
 
       - uses: actions/upload-artifact@v4

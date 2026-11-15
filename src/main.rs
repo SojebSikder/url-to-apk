@@ -15,15 +15,15 @@ use config::{AppOptions, DEFAULT_CONFIG_FILE, Platform};
 
 #[derive(Parser)]
 #[command(
-    name = "url-to-apk",
+    name = "url2apk",
     version,
     about = "Turn any website into an Android app (WebView APK) or an iOS app (IPA)",
     after_help = "Examples:\n  \
-        url-to-apk build https://example.com\n  \
-        url-to-apk build https://example.com -n \"Example\" -i logo.png --theme-color \"#0F9D58\" --pull-to-refresh\n  \
-        url-to-apk build https://example.com --platform ios --simulator --install\n  \
-        url-to-apk init https://example.com && url-to-apk build\n  \
-        url-to-apk doctor"
+        url2apk build https://example.com\n  \
+        url2apk build https://example.com -n \"Example\" -i logo.png --theme-color \"#0F9D58\" --pull-to-refresh\n  \
+        url2apk build https://example.com --platform ios --simulator --install\n  \
+        url2apk init https://example.com && url2apk build\n  \
+        url2apk doctor"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -182,8 +182,8 @@ fn cmd_build(args: BuildArgs) -> Result<()> {
     println!("  Package: {}", cfg.package);
     if cfg.keystore.is_none() {
         println!(
-            "  Signed with the default key in ~/.url-to-apk. Keep it to ship updates, or use\n  \
-             `url-to-apk keygen` + --keystore for a dedicated release key."
+            "  Signed with the default key in ~/.url2apk. Keep it to ship updates, or use\n  \
+             `url2apk keygen` + --keystore for a dedicated release key."
         );
     }
     if !args.install {
@@ -217,13 +217,13 @@ fn finish_ios_build(cfg: &config::AppConfig, flags: &builder::BuildFlags) -> Res
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum CiProvider {
-    /// GitHub Actions: .github/workflows/url-to-apk.yml
+    /// GitHub Actions: .github/workflows/url2apk.yml
     Github,
 }
 
 /// The example workflow doubles as the `init --ci github` template.
 const GITHUB_WORKFLOW: &str = include_str!("../examples/github-actions.yml");
-const GITHUB_WORKFLOW_PATH: &str = ".github/workflows/url-to-apk.yml";
+const GITHUB_WORKFLOW_PATH: &str = ".github/workflows/url2apk.yml";
 
 fn github_workflow(config_path: &Path) -> String {
     let config = config_path.to_string_lossy().replace('\\', "/");
@@ -262,7 +262,7 @@ fn cmd_init(url: Option<String>, output: &Path, force: bool, ci: Option<CiProvid
         std::fs::write(output, config::init_template(&url))
             .with_context(|| format!("cannot write {}", output.display()))?;
         println!(
-            "Wrote {}. Edit it, then run `url-to-apk build`.",
+            "Wrote {}. Edit it, then run `url2apk build`.",
             output.display()
         );
     }
@@ -282,7 +282,7 @@ fn cmd_init(url: Option<String>, output: &Path, force: bool, ci: Option<CiProvid
             );
         }
         None => println!(
-            "Tip: `url-to-apk init --ci github` adds a GitHub Actions workflow that builds the app."
+            "Tip: `url2apk init --ci github` adds a GitHub Actions workflow that builds the app."
         ),
     }
     Ok(())
@@ -326,7 +326,7 @@ fn cmd_doctor(sdk: Option<&Path>, jdk: Option<&Path>) -> Result<()> {
         Err(e) => report("Android SDK", Err(e)),
     }
     if ok {
-        println!("\nAll good. Try: url-to-apk build https://example.com");
+        println!("\nAll good. Try: url2apk build https://example.com");
         Ok(())
     } else {
         bail!("environment is incomplete; see the messages above")
@@ -349,7 +349,7 @@ fn cmd_doctor_ios() -> Result<()> {
     }
     if ok {
         println!(
-            "\nAll good. Try: url-to-apk build https://example.com --platform ios --simulator"
+            "\nAll good. Try: url2apk build https://example.com --platform ios --simulator"
         );
         Ok(())
     } else {
@@ -381,7 +381,7 @@ fn cmd_keygen(args: KeygenArgs) -> Result<()> {
     );
     println!("Back it up: you need this exact key to publish updates to your app.");
     println!(
-        "Build with: url-to-apk build <URL> --keystore {} --key-alias {}  (password via URL2APK_STORE_PASSWORD)",
+        "Build with: url2apk build <URL> --keystore {} --key-alias {}  (password via URL2APK_STORE_PASSWORD)",
         args.output.display(),
         args.alias
     );
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn version_command() {
-        let cli = Cli::try_parse_from(["url-to-apk", "version"]).unwrap();
+        let cli = Cli::try_parse_from(["url2apk", "version"]).unwrap();
         assert!(matches!(cli.command, Cmd::Version));
         assert!(version_string().contains(env!("CARGO_PKG_VERSION")));
     }
@@ -412,7 +412,7 @@ mod tests {
     fn workflow_flags_exist() {
         // Every flag the workflow passes to `build` must exist.
         Cli::try_parse_from([
-            "url-to-apk",
+            "url2apk",
             "build",
             "--config",
             "x.toml",

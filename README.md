@@ -1,11 +1,11 @@
-# url-to-apk
+# url2apk
 
 Turn any website into an installable Android app or iOS app (a WebView wrapper) with
 one command.
 
 ```sh
-url-to-apk build https://example.com                                       # Android APK
-url-to-apk build https://example.com --platform ios --simulator --install  # iOS (macOS only)
+url2apk build https://example.com                                       # Android APK
+url2apk build https://example.com --platform ios --simulator --install  # iOS (macOS only)
 ```
 
 No Gradle, no Android Studio or Xcode project. The tool generates a tiny dependency-free
@@ -38,18 +38,18 @@ app and builds it directly with the platform tools:
 Check everything with:
 
 ```sh
-url-to-apk doctor                  # Android
-url-to-apk doctor --platform ios   # iOS
+url2apk doctor                  # Android
+url2apk doctor --platform ios   # iOS
 ```
 
 ## Install
 
 Download a prebuilt binary for Windows, macOS or Linux from the
-[Releases](https://github.com/SojebSikder/url-to-apk/releases) page and put it on your
+[Releases](https://github.com/SojebSikder/url2apk/releases) page and put it on your
 `PATH`. Or build it with Rust:
 
 ```sh
-cargo install --git https://github.com/SojebSikder/url-to-apk
+cargo install --git https://github.com/SojebSikder/url2apk
 # or, from a clone of this repo:
 cargo install --path .
 ```
@@ -58,10 +58,10 @@ cargo install --path .
 
 ```sh
 # Simplest: name, package and icon are derived from the domain
-url-to-apk build https://example.com
+url2apk build https://example.com
 
 # Customized
-url-to-apk build https://example.com \
+url2apk build https://example.com \
   --name "Example" --package com.example.app \
   --icon logo.png --theme-color "#0F9D58" \
   --version-name 1.2.0 --version-code 12 \
@@ -70,31 +70,31 @@ url-to-apk build https://example.com \
   --install            # adb install + launch on a connected device
 
 # The same app for iOS (on macOS)
-url-to-apk build https://example.com --platform ios \
+url2apk build https://example.com --platform ios \
   --name "Example" --bundle-id com.example.app \
   --icon logo.png --theme-color "#0F9D58" \
   --version-name 1.2.0 --version-code 12 \
   --simulator --install   # install + launch on the booted Simulator
 
 # Config-file workflow (good for repeatable builds / CI)
-url-to-apk init https://example.com   # writes a documented url2apk.toml
-url-to-apk build                      # picks up ./url2apk.toml automatically
-url-to-apk build --platform ios       # same config, iOS build
-url-to-apk init --ci github           # adds a GitHub Actions workflow (see below)
+url2apk init https://example.com   # writes a documented url2apk.toml
+url2apk build                      # picks up ./url2apk.toml automatically
+url2apk build --platform ios       # same config, iOS build
+url2apk init --ci github           # adds a GitHub Actions workflow (see below)
 ```
 
 CLI flags override values in the config file. Boolean flags accept `--flag` or
-`--flag=false`. Run `url-to-apk build --help` for every option.
+`--flag=false`. Run `url2apk build --help` for every option.
 
 ## Build on GitHub Actions
 
 Build both apps in the cloud, including iOS without owning a Mac:
 
 ```sh
-url-to-apk init https://example.com --ci github
+url2apk init https://example.com --ci github
 ```
 
-This writes `url2apk.toml` and `.github/workflows/url-to-apk.yml`. If `url2apk.toml` already
+This writes `url2apk.toml` and `.github/workflows/url2apk.yml`. If `url2apk.toml` already
 exists, it's kept. You can also copy [`examples/github-actions.yml`](examples/github-actions.yml)
 by hand. Commit both files, then run the workflow from the **Actions** tab or push a tag:
 
@@ -107,13 +107,13 @@ are optional:
 
 | Secret                   | Value                                                                                      |
 | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url-to-apk keygen`)                    |
+| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url2apk keygen`)                    |
 | `ANDROID_STORE_PASSWORD` | The keystore password                                                                      |
 | `ANDROID_KEY_ALIAS`      | The key alias (default `release`)                                                          |
 | `IOS_CERT_P12_B64`       | Your Apple Development/Distribution certificate exported from Keychain as `.p12`, base64   |
 | `IOS_CERT_PASSWORD`      | The `.p12` password                                                                        |
 | `IOS_PROFILE_B64`        | The `.mobileprovision` matching `bundle_id`, base64                                        |
-| `URL_TO_APK_TOKEN`       | Only while this repo is private: a fine-grained token with read-only Contents access to it |
+| `URL2APK_TOKEN`       | Only while this repo is private: a fine-grained token with read-only Contents access to it |
 
 Encode files with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux), or on Windows
 `[Convert]::ToBase64String([IO.File]::ReadAllBytes("FILE"))` in PowerShell.
@@ -156,12 +156,12 @@ iOS-native behavior. See [iOS](#ios) for the differences.
 For iOS signing, see [iOS](#ios).
 
 By default, APKs are signed with a key generated once at
-`~/.url-to-apk/default.keystore`. Android only accepts an update signed with the
+`~/.url2apk/default.keystore`. Android only accepts an update signed with the
 **same key**, so keep that file, or use your own release key:
 
 ```sh
-URL2APK_STORE_PASSWORD='s3cret!' url-to-apk keygen -o release.keystore -a release
-URL2APK_STORE_PASSWORD='s3cret!' url-to-apk build https://example.com \
+URL2APK_STORE_PASSWORD='s3cret!' url2apk keygen -o release.keystore -a release
+URL2APK_STORE_PASSWORD='s3cret!' url2apk build https://example.com \
   --keystore release.keystore --key-alias release
 ```
 
@@ -179,14 +179,14 @@ macOS CI runner such as GitHub Actions `runs-on: macos-latest`.
 ```sh
 # Simulator: builds Example-1.0.0.app, installs it on the booted Simulator and launches it
 open -a Simulator
-url-to-apk build https://example.com --platform ios --simulator --install
+url2apk build https://example.com --platform ios --simulator --install
 
 # Device: a signed .ipa for your development or distribution profile
-url-to-apk build https://example.com --platform ios \
+url2apk build https://example.com --platform ios \
   --bundle-id com.example.app --provisioning-profile MyApp.mobileprovision
 
 # Without a profile you get an ad-hoc signed .ipa for re-signing tools (Sideloadly, AltStore, ...)
-url-to-apk build https://example.com --platform ios
+url2apk build https://example.com --platform ios
 ```
 
 | Option                   | Notes                                                                                    |

@@ -241,7 +241,7 @@ pub fn workspace(flags: &BuildFlags) -> Result<(PathBuf, Option<tempfile::TempDi
             Ok((dir.clone(), None))
         }
         None => {
-            let t = tempfile::Builder::new().prefix("url-to-apk-").tempdir()?;
+            let t = tempfile::Builder::new().prefix("url2apk-").tempdir()?;
             Ok((t.path().to_path_buf(), Some(t)))
         }
     }
@@ -319,7 +319,7 @@ fn resolve_signing(cfg: &AppConfig, jdk: &Jdk, verbose: bool) -> Result<Signing>
     if let Some(ks) = &cfg.keystore {
         if !ks.is_file() {
             bail!(
-                "keystore not found: {} (create one with `url-to-apk keygen`)",
+                "keystore not found: {} (create one with `url2apk keygen`)",
                 ks.display()
             );
         }
@@ -341,9 +341,14 @@ fn resolve_signing(cfg: &AppConfig, jdk: &Jdk, verbose: bool) -> Result<Signing>
         });
     }
 
-    let dir = dirs::home_dir()
-        .context("cannot determine home directory")?
-        .join(".url-to-apk");
+    let home = dirs::home_dir().context("cannot determine home directory")?;
+    // Keep using a key created before the rename, so updates stay installable.
+    let legacy = home.join(".url-to-apk");
+    let dir = if legacy.join("default.keystore").is_file() {
+        legacy
+    } else {
+        home.join(".url2apk")
+    };
     let keystore = dir.join("default.keystore");
     if !keystore.is_file() {
         std::fs::create_dir_all(&dir)?;
@@ -356,7 +361,7 @@ fn resolve_signing(cfg: &AppConfig, jdk: &Jdk, verbose: bool) -> Result<Signing>
             &keystore,
             DEFAULT_KEY_ALIAS,
             DEFAULT_KEY_PASSWORD,
-            "CN=url-to-apk, OU=Default, O=url-to-apk",
+            "CN=url2apk, OU=Default, O=url2apk",
             10000,
             verbose,
         )?;

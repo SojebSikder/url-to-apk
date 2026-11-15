@@ -1,19 +1,24 @@
 # url-to-apk
 
-Turn any website into an installable Android app (a WebView wrapper) with one command.
-iOS is supported too (on macOS; see [iOS](#ios)).
+Turn any website into an installable Android app or iOS app (a WebView wrapper) with
+one command.
 
 ```sh
-url-to-apk build https://example.com
-url-to-apk build https://example.com --platform ios --simulator --install
+url-to-apk build https://example.com                                       # Android APK
+url-to-apk build https://example.com --platform ios --simulator --install  # iOS (macOS only)
 ```
 
-No Gradle, no Android Studio project. The tool generates a tiny dependency-free
-Android app and builds it directly with the Android SDK tools
-(`aapt2` -> `javac` -> `d8` -> `zipalign` -> `apksigner`). A typical APK is ~40–100 KB
-and builds in a few seconds.
+No Gradle, no Android Studio or Xcode project. The tool generates a tiny dependency-free
+app and builds it directly with the platform tools:
+
+- **Android:** `aapt2` -> `javac` -> `d8` -> `zipalign` -> `apksigner`. A typical APK is
+  ~40–100 KB and builds in a few seconds, on Windows, macOS or Linux.
+- **iOS:** `swiftc` -> `actool` -> `codesign`, producing an `.ipa` (devices) or `.app`
+  (Simulator). Needs macOS with Xcode. See [iOS](#ios).
 
 ## Requirements
+
+### For Android
 
 | Tool                    | Notes                                                                                  |
 | ----------------------- | -------------------------------------------------------------------------------------- |
@@ -23,10 +28,18 @@ and builds in a few seconds.
 | `platforms;android-33`+ | `sdkmanager "platforms;android-35"`                                                    |
 | `platform-tools`        | Optional, only for `--install`                                                         |
 
+### For iOS
+
+| Tool  | Notes                                                                                         |
+| ----- | --------------------------------------------------------------------------------------------- |
+| macOS | Apple's SDK and signing tools only run on macOS (a Mac or a CI runner like `macos-latest`)    |
+| Xcode | The full app, not just the Command Line Tools: `sudo xcode-select -s /Applications/Xcode.app` |
+
 Check everything with:
 
 ```sh
-url-to-apk doctor
+url-to-apk doctor                  # Android
+url-to-apk doctor --platform ios   # iOS
 ```
 
 ## Install
@@ -50,15 +63,26 @@ url-to-apk build https://example.com \
   --permission camera --permission location \
   --install            # adb install + launch on a connected device
 
+# The same app for iOS (on macOS)
+url-to-apk build https://example.com --platform ios \
+  --name "Example" --bundle-id com.example.app \
+  --icon logo.png --theme-color "#0F9D58" \
+  --version-name 1.2.0 --version-code 12 \
+  --simulator --install   # install + launch on the booted Simulator
+
 # Config-file workflow (good for repeatable builds / CI)
 url-to-apk init https://example.com   # writes a documented url2apk.toml
 url-to-apk build                      # picks up ./url2apk.toml automatically
+url-to-apk build --platform ios       # same config, iOS build
 ```
 
 CLI flags override values in the config file. Boolean flags accept `--flag` or
 `--flag=false`. Run `url-to-apk build --help` for every option.
 
 ## What the generated app does
+
+This section describes the Android app. The iOS app has the same features with
+iOS-native behavior. See [iOS](#ios) for the differences.
 
 - **Navigation:** back button walks web history; links to other domains open in the
   browser (configurable with `--allow-host` / `--open-external-links=false`); server
@@ -83,7 +107,9 @@ CLI flags override values in the config file. Boolean flags accept `--flag` or
   cookies persisted
 - **Debugging:** `--debug-webview` enables `chrome://inspect`
 
-## Signing
+## Signing (Android)
+
+For iOS signing, see [iOS](#ios).
 
 By default, APKs are signed with a key generated once at
 `~/.url-to-apk/default.keystore`. Android only accepts an update signed with the
@@ -103,10 +129,8 @@ Back up your keystore and password. If you lose them, you can't update the app.
 from the same options. The tool generates a small Swift app and builds it with the Xcode
 command-line tools (`swiftc` -> `actool` -> `codesign`), so there's no Xcode project.
 
-**Requirements:** macOS with the full Xcode app (`sudo xcode-select -s /Applications/Xcode.app`).
-Apple's SDK and signing tools only run on macOS. On Windows or Linux, use a Mac or a macOS CI
-runner such as GitHub Actions `runs-on: macos-latest`. Check your setup with
-`url-to-apk doctor --platform ios`.
+You need macOS with Xcode (see [Requirements](#for-ios)). On Windows or Linux, use a Mac or a
+macOS CI runner such as GitHub Actions `runs-on: macos-latest`.
 
 ```sh
 # Simulator: builds Example-1.0.0.app, installs it on the booted Simulator and launches it
@@ -155,7 +179,7 @@ iOS differences:
 
 ## Notes and limitations
 
-- Output is an APK, which is right for sideloading and most stores. Google Play
+- Android output is an APK, which is right for sideloading and most stores. Google Play
   requires an AAB for new apps; convert with
   [bundletool](https://developer.android.com/tools/bundletool) or a Gradle project.
 - On Android 12+, `https` deep links open the app only after the user enables them in
@@ -163,6 +187,6 @@ iOS differences:
   `/.well-known/assetlinks.json` on your domain.
 - Pull-to-refresh triggers when the page is scrolled to the top. Sites that scroll an
   inner container instead of the document can trigger it while scrolled.
-- `blob:` and `data:` URL downloads aren't supported.
+- On Android, `blob:` and `data:` URL downloads aren't supported.
 - `--keep-build DIR` keeps the generated project for inspection; `-v` prints every tool
   invocation.

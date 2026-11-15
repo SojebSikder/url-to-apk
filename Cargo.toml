@@ -1,0 +1,15 @@
+[package]
+name = "url-to-apk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+dirs = "7.0.0"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
+toml = "1.2.1"
+url = "2.5.8"
+zip = { version = "9.5.1", default-features = false, features = ["deflate"] }

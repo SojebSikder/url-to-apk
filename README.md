@@ -107,16 +107,13 @@ are optional:
 
 | Secret                   | Value                                                                                      |
 | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url2apk keygen`)                    |
+| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url2apk keygen`)                       |
 | `ANDROID_STORE_PASSWORD` | The keystore password                                                                      |
 | `ANDROID_KEY_ALIAS`      | The key alias (default `release`)                                                          |
 | `IOS_CERT_P12_B64`       | Your Apple Development/Distribution certificate exported from Keychain as `.p12`, base64   |
 | `IOS_CERT_PASSWORD`      | The `.p12` password                                                                        |
 | `IOS_PROFILE_B64`        | The `.mobileprovision` matching `bundle_id`, base64                                        |
-| `URL2APK_TOKEN`       | Only while this repo is private: a fine-grained token with read-only Contents access to it |
-
-Encode files with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux), or on Windows
-`[Convert]::ToBase64String([IO.File]::ReadAllBytes("FILE"))` in PowerShell.
+| `URL2APK_TOKEN`          | Only while this repo is private: a fine-grained token with read-only Contents access to it |
 
 - Without the Android keystore, each run signs with a new throwaway key, so a new APK can't
   be installed over an older one. The workflow shows a warning when this happens.
@@ -152,8 +149,6 @@ iOS-native behavior. See [iOS](#ios) for the differences.
 - **Debugging:** `--debug-webview` enables `chrome://inspect`
 
 ## Signing (Android)
-
-For iOS signing, see [iOS](#ios).
 
 By default, APKs are signed with a key generated once at
 `~/.url2apk/default.keystore`. Android only accepts an update signed with the
@@ -199,15 +194,6 @@ url2apk build https://example.com --platform ios
 
 `--version-name` becomes `CFBundleShortVersionString`, so for iOS it must be 1 to 3 numbers
 separated by dots (e.g. `1.2.0`). `--version-code` becomes `CFBundleVersion`.
-
-The iOS app supports the same features as the Android app: allowed hosts and external links,
-`tel:`/`mailto:`/other app links, the offline screen and cached pages, pull to refresh, file
-uploads (camera and photo library), downloads (shown in the share sheet, so you can "Save to
-Files"), camera/microphone/location permissions, JS `alert`/`confirm`/`prompt`, fullscreen
-video, theme colors, launch screen color, orientation lock, `--fullscreen`,
-`--keep-screen-on`, user agent options, `--debug-webview` (Safari Web Inspector, iOS 16.4+),
-and recovery when the web content process crashes. Swiping from the screen edge goes back
-and forward.
 
 iOS differences:
 

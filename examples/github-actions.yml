@@ -1,0 +1,138 @@
+# Builds the app described in url2apk.toml for Android and iOS with url-to-apk.
+# Copy to .github/workflows/ in your repo, or generate it with `url-to-apk init --ci github`.
+# Docs: https://github.com/SojebSikder/url-to-apk#build-on-github-actions
+#
+# Runs on tag pushes (v1.0.0, ...) and manually (Actions tab > Build apps > Run workflow).
+# Builds are uploaded as workflow artifacts and, for tags, attached to the GitHub Release.
+#
+# Secrets (Settings > Secrets and variables > Actions), all optional:
+#   ANDROID_KEYSTORE_B64    base64 of your keystore (create it once with `url-to-apk keygen`).
+#                           Without it every run uses a throwaway key, so a new APK can't
+#                           be installed over an older one.
+#   ANDROID_STORE_PASSWORD  keystore password
+#   ANDROID_KEY_ALIAS       key alias (default: release)
+#   IOS_CERT_P12_B64        base64 of your Apple signing certificate exported as .p12
+#   IOS_CERT_PASSWORD       password of the .p12
+#   IOS_PROFILE_B64         base64 of the .mobileprovision matching bundle_id in url2apk.toml
+#                           Without the iOS secrets you get an ad-hoc signed .ipa (re-sign it
+#                           with Sideloadly, AltStore, ... to install it on a device).
+#   URL_TO_APK_TOKEN        only while the url-to-apk repo is private: a token that can read it
+#
+# Make base64 values with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux).
+# Don't need one platform? Delete its job.
+
+name: Build apps
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach builds to GitHub Releases on tag pushes
+
+env:
+  URL2APK_CONFIG: url2apk.toml
+  URL_TO_APK_GIT: https://github.com/SojebSikder/url-to-apk
+
+jobs:
+  android:
+    runs-on: ubuntu-latest # has the Android SDK preinstalled
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install url-to-apk
+        env:
+          TOKEN: ${{ secrets.URL_TO_APK_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+            export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          fi
+          cargo install --locked --git "$URL_TO_APK_GIT"
+
+      - name: Build APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          signing=()
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+            export URL2APK_STORE_PASSWORD="$STORE_PASSWORD"
+            signing=(--keystore "$RUNNER_TEMP/release.keystore" --key-alias "${KEY_ALIAS:-release}")
+          else
+            echo "::warning::ANDROID_KEYSTORE_B64 is not set: the APK is signed with a throwaway key and can't update earlier installs"
+          fi
+          # The run number makes the version code increase with every build.
+          url-to-apk build --config "$URL2APK_CONFIG" --platform android \
+            --version-code "${{ github.run_number }}" -o dist/app.apk "${signing[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/app.apk
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/app.apk
+
+  ios:
+    runs-on: macos-latest # has Xcode preinstalled
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install url-to-apk
+        env:
+          TOKEN: ${{ secrets.URL_TO_APK_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+            export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          fi
+          cargo install --locked --git "$URL_TO_APK_GIT"
+
+      - name: Build IPA
+        env:
+          P12_B64: ${{ secrets.IOS_CERT_P12_B64 }}
+          P12_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE_B64: ${{ secrets.IOS_PROFILE_B64 }}
+        run: |
+          signing=()
+          if [ -n "$P12_B64" ] && [ -n "$PROFILE_B64" ]; then
+            # Temporary keychain holding the signing certificate.
+            keychain="$RUNNER_TEMP/build.keychain-db"
+            keychain_password="$(uuidgen)"
+            security create-keychain -p "$keychain_password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$keychain_password" "$keychain"
+            echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
+            signing=(--provisioning-profile "$RUNNER_TEMP/app.mobileprovision")
+          else
+            echo "::warning::iOS signing secrets are not set: building an ad-hoc signed .ipa"
+          fi
+          url-to-apk build --config "$URL2APK_CONFIG" --platform ios --simulator=false \
+            --version-code "${{ github.run_number }}" -o dist/app.ipa "${signing[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/app.ipa
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/app.ipa

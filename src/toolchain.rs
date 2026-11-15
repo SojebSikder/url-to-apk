@@ -41,18 +41,32 @@ pub struct Toolchain {
 }
 
 impl Toolchain {
-    pub fn detect(sdk: Option<&Path>, jdk: Option<&Path>, compile_sdk: Option<u32>) -> Result<Self> {
+    pub fn detect(
+        sdk: Option<&Path>,
+        jdk: Option<&Path>,
+        compile_sdk: Option<u32>,
+    ) -> Result<Self> {
         let jdk = find_jdk(jdk)?;
         let sdk = find_sdk(sdk)?;
         let build_tools = find_build_tools(&sdk)?;
         let platform = find_platform(&sdk, compile_sdk)?;
         let adb = Some(sdk.join("platform-tools").join(exe("adb"))).filter(|p| p.is_file());
-        Ok(Toolchain { jdk, sdk, build_tools, platform, adb })
+        Ok(Toolchain {
+            jdk,
+            sdk,
+            build_tools,
+            platform,
+            adb,
+        })
     }
 }
 
 pub fn exe(name: &str) -> String {
-    if cfg!(windows) { format!("{name}.exe") } else { name.to_string() }
+    if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    }
 }
 
 fn jdk_at(home: &Path) -> Option<Jdk> {
@@ -68,8 +82,12 @@ fn jdk_at(home: &Path) -> Option<Jdk> {
 
 /// Asks the `java` on PATH where it lives.
 fn java_home_from_path() -> Option<PathBuf> {
-    let out = Command::new("java").args(["-XshowSettings:properties", "-version"]).output().ok()?;
-    let text = String::from_utf8_lossy(&out.stderr).into_owned() + &String::from_utf8_lossy(&out.stdout);
+    let out = Command::new("java")
+        .args(["-XshowSettings:properties", "-version"])
+        .output()
+        .ok()?;
+    let text =
+        String::from_utf8_lossy(&out.stderr).into_owned() + &String::from_utf8_lossy(&out.stdout);
     text.lines()
         .find_map(|l| l.trim().strip_prefix("java.home = "))
         .map(|h| PathBuf::from(h.trim()))
@@ -78,7 +96,10 @@ fn java_home_from_path() -> Option<PathBuf> {
 pub fn find_jdk(explicit: Option<&Path>) -> Result<Jdk> {
     if let Some(p) = explicit {
         return jdk_at(p).with_context(|| {
-            format!("{} is not a JDK (expected bin/java, bin/javac and bin/keytool)", p.display())
+            format!(
+                "{} is not a JDK (expected bin/java, bin/javac and bin/keytool)",
+                p.display()
+            )
         });
     }
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -128,7 +149,10 @@ pub fn find_sdk(explicit: Option<&Path>) -> Result<PathBuf> {
         .find(|c| c.join("build-tools").is_dir() || c.join("platforms").is_dir());
     match found {
         Some(p) => Ok(p.clone()),
-        None if explicit.is_some() => bail!("{} is not an Android SDK directory", candidates[0].display()),
+        None if explicit.is_some() => bail!(
+            "{} is not an Android SDK directory",
+            candidates[0].display()
+        ),
         None => bail!(
             "Android SDK not found. Install Android Studio or the command-line tools \
              (https://developer.android.com/studio#command-line-tools-only), then set ANDROID_HOME or pass --sdk"
@@ -137,7 +161,12 @@ pub fn find_sdk(explicit: Option<&Path>) -> Result<PathBuf> {
 }
 
 fn version_key(v: &str) -> Vec<u32> {
-    v.split(['-', ' ']).next().unwrap_or("").split('.').map(|p| p.parse().unwrap_or(0)).collect()
+    v.split(['-', ' '])
+        .next()
+        .unwrap_or("")
+        .split('.')
+        .map(|p| p.parse().unwrap_or(0))
+        .collect()
 }
 
 pub fn find_build_tools(sdk: &Path) -> Result<BuildTools> {
@@ -154,8 +183,11 @@ pub fn find_build_tools(sdk: &Path) -> Result<BuildTools> {
                         d8_jar: p.join("lib").join("d8.jar"),
                         apksigner_jar: p.join("lib").join("apksigner.jar"),
                     };
-                    (bt.aapt2.is_file() && bt.zipalign.is_file() && bt.d8_jar.is_file() && bt.apksigner_jar.is_file())
-                        .then_some(bt)
+                    (bt.aapt2.is_file()
+                        && bt.zipalign.is_file()
+                        && bt.d8_jar.is_file()
+                        && bt.apksigner_jar.is_file())
+                    .then_some(bt)
                 })
                 .collect()
         })
@@ -177,7 +209,11 @@ fn platform_api(dir: &Path) -> Option<u32> {
         .and_then(|v| v.trim().parse().ok())
         .or_else(|| {
             let name = dir.file_name()?.to_string_lossy().into_owned();
-            name.strip_prefix("android-")?.split(['.', '-']).next()?.parse().ok()
+            name.strip_prefix("android-")?
+                .split(['.', '-'])
+                .next()?
+                .parse()
+                .ok()
         })
 }
 
@@ -192,7 +228,10 @@ pub fn find_platform(sdk: &Path, wanted: Option<u32>) -> Result<Platform> {
                     if !jar.is_file() {
                         return None;
                     }
-                    Some(Platform { api: platform_api(&p)?, android_jar: jar })
+                    Some(Platform {
+                        api: platform_api(&p)?,
+                        android_jar: jar,
+                    })
                 })
                 .collect()
         })

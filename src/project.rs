@@ -21,7 +21,12 @@ pub fn generate(cfg: &AppConfig, dir: &Path, compile_sdk: u32) -> Result<Project
     let values = res.join("values");
     std::fs::create_dir_all(&values)?;
 
-    let icons = icon::write_icons(&res, cfg.icon.as_deref(), cfg.theme_color, cfg.icon_background)?;
+    let icons = icon::write_icons(
+        &res,
+        cfg.icon.as_deref(),
+        cfg.theme_color,
+        cfg.icon_background,
+    )?;
     if cfg.adaptive_icon {
         let anydpi = res.join("mipmap-anydpi-v26");
         std::fs::create_dir_all(&anydpi)?;
@@ -66,11 +71,18 @@ pub fn generate(cfg: &AppConfig, dir: &Path, compile_sdk: u32) -> Result<Project
     let src = dir.join("src").join(cfg.package.replace('.', "/"));
     std::fs::create_dir_all(&src)?;
     let activity = src.join("MainActivity.java");
-    std::fs::write(&activity, MAIN_ACTIVITY.replace("__PACKAGE__", &cfg.package))?;
+    std::fs::write(
+        &activity,
+        MAIN_ACTIVITY.replace("__PACKAGE__", &cfg.package),
+    )?;
     let config = src.join("Config.java");
     std::fs::write(&config, config_java(cfg))?;
 
-    Ok(Project { manifest, res, java_sources: vec![activity, config] })
+    Ok(Project {
+        manifest,
+        res,
+        java_sources: vec![activity, config],
+    })
 }
 
 const ADAPTIVE_ICON_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -113,7 +125,10 @@ fn themes_xml(cfg: &AppConfig) -> String {
 fn manifest_xml(cfg: &AppConfig) -> String {
     let mut perms = String::new();
     let mut add = |name: &str, extra: &str| {
-        let _ = writeln!(perms, "    <uses-permission android:name=\"android.permission.{name}\"{extra}/>");
+        let _ = writeln!(
+            perms,
+            "    <uses-permission android:name=\"android.permission.{name}\"{extra}/>"
+        );
     };
     add("INTERNET", "");
     add("ACCESS_NETWORK_STATE", "");
@@ -153,7 +168,11 @@ fn manifest_xml(cfg: &AppConfig) -> String {
             "                <data android:scheme=\"https\"/>\n                <data android:scheme=\"http\"/>\n",
         );
         for h in hosts {
-            let _ = writeln!(data, "                <data android:host=\"{}\"/>", xml_escape(&h));
+            let _ = writeln!(
+                data,
+                "                <data android:host=\"{}\"/>",
+                xml_escape(&h)
+            );
         }
         format!(
             "            <intent-filter>\n                \
@@ -201,7 +220,12 @@ fn manifest_xml(cfg: &AppConfig) -> String {
 }
 
 fn config_java(cfg: &AppConfig) -> String {
-    let hosts = cfg.allowed_hosts.iter().map(|h| java_string(h)).collect::<Vec<_>>().join(", ");
+    let hosts = cfg
+        .allowed_hosts
+        .iter()
+        .map(|h| java_string(h))
+        .collect::<Vec<_>>()
+        .join(", ");
     let b = |v: bool| if v { "true" } else { "false" };
     format!(
         r#"package {package};
@@ -284,7 +308,10 @@ fn java_string(s: &str) -> String {
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Escapes text for an Android `<string>` resource (aapt escaping + XML).
@@ -313,7 +340,10 @@ mod tests {
     #[test]
     fn escaping() {
         assert_eq!(java_string("a\"b\\c\nd\u{1}"), r#""a\"b\\c\nd\001""#);
-        assert_eq!(android_string("Tom's <App> & \"co\""), r#"Tom\'s &lt;App&gt; &amp; \&quot;co\&quot;"#);
+        assert_eq!(
+            android_string("Tom's <App> & \"co\""),
+            r#"Tom\'s &lt;App&gt; &amp; \&quot;co\&quot;"#
+        );
         assert_eq!(android_string("@home"), "\\@home");
     }
 }

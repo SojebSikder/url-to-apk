@@ -7,8 +7,13 @@ use image::imageops::{self, FilterType};
 use image::{Rgba, RgbaImage};
 
 /// (density folder suffix, scale factor relative to mdpi)
-const DENSITIES: [(&str, f32); 5] =
-    [("mdpi", 1.0), ("hdpi", 1.5), ("xhdpi", 2.0), ("xxhdpi", 3.0), ("xxxhdpi", 4.0)];
+const DENSITIES: [(&str, f32); 5] = [
+    ("mdpi", 1.0),
+    ("hdpi", 1.5),
+    ("xhdpi", 2.0),
+    ("xxhdpi", 3.0),
+    ("xxxhdpi", 4.0),
+];
 
 const LEGACY_DP: f32 = 48.0;
 const ADAPTIVE_DP: f32 = 108.0;
@@ -64,31 +69,56 @@ pub fn write_icons(
         };
         foreground.save(dir.join("ic_launcher_foreground.png"))?;
     }
-    Ok(IconOutput { adaptive_background })
+    Ok(IconOutput {
+        adaptive_background,
+    })
 }
 
 /// Writes the single 1024x1024 iOS app icon. iOS masks the corners itself and
 /// rejects transparency, so the result is flattened onto an opaque background.
-pub fn write_ios_icon(path: &Path, source: Option<&Path>, theme_color: u32, icon_background: Option<u32>) -> Result<()> {
+pub fn write_ios_icon(
+    path: &Path,
+    source: Option<&Path>,
+    theme_color: u32,
+    icon_background: Option<u32>,
+) -> Result<()> {
     const SIZE: u32 = 1024;
     let src = match source {
-        Some(p) => Some(image::open(p).with_context(|| format!("cannot read icon {}", p.display()))?.into_rgba8()),
+        Some(p) => Some(
+            image::open(p)
+                .with_context(|| format!("cannot read icon {}", p.display()))?
+                .into_rgba8(),
+        ),
         None => None,
     };
     let (background, glyph) = match &src {
         // An opaque icon brings its own background: fill the whole square.
-        Some(img) if is_opaque(img) => (icon_background.unwrap_or_else(|| to_argb(*img.get_pixel(0, 0))), fit(img, SIZE, SIZE)),
-        Some(img) => (icon_background.unwrap_or(0xFFFFFFFF), fit(img, SIZE, SIZE * 7 / 10)),
+        Some(img) if is_opaque(img) => (
+            icon_background.unwrap_or_else(|| to_argb(*img.get_pixel(0, 0))),
+            fit(img, SIZE, SIZE),
+        ),
+        Some(img) => (
+            icon_background.unwrap_or(0xFFFFFFFF),
+            fit(img, SIZE, SIZE * 7 / 10),
+        ),
         None => {
             // Render the default glyph larger than the canvas and crop the center
             // so the globe fills a sensible share of the icon.
             const BIG: u32 = 1400;
             let big = default_icon(BIG, theme_color, false);
             let off = (BIG - SIZE) / 2;
-            (icon_background.unwrap_or(theme_color), imageops::crop_imm(&big, off, off, SIZE, SIZE).to_image())
+            (
+                icon_background.unwrap_or(theme_color),
+                imageops::crop_imm(&big, off, off, SIZE, SIZE).to_image(),
+            )
         }
     };
-    let bg = Rgba([(background >> 16) as u8, (background >> 8) as u8, background as u8, 255]);
+    let bg = Rgba([
+        (background >> 16) as u8,
+        (background >> 8) as u8,
+        background as u8,
+        255,
+    ]);
     let mut out = RgbaImage::from_pixel(SIZE, SIZE, bg);
     imageops::overlay(&mut out, &glyph, 0, 0);
     image::DynamicImage::ImageRgba8(out)
@@ -100,7 +130,9 @@ pub fn write_ios_icon(path: &Path, source: Option<&Path>, theme_color: u32, icon
 
 fn is_opaque(img: &RgbaImage) -> bool {
     let (w, h) = img.dimensions();
-    [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)].iter().all(|&(x, y)| img.get_pixel(x, y)[3] >= 250)
+    [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
+        .iter()
+        .all(|&(x, y)| img.get_pixel(x, y)[3] >= 250)
 }
 
 fn to_argb(p: Rgba<u8>) -> u32 {
@@ -126,7 +158,11 @@ fn fit(img: &RgbaImage, canvas: u32, content: u32) -> RgbaImage {
 fn default_icon(size: u32, theme: u32, legacy: bool) -> RgbaImage {
     let s = size as f32;
     let c = s / 2.0;
-    let (globe_r, stroke) = if legacy { (s * 0.27, s * 0.045) } else { (s * 0.20, s * 0.034) };
+    let (globe_r, stroke) = if legacy {
+        (s * 0.27, s * 0.045)
+    } else {
+        (s * 0.20, s * 0.034)
+    };
     let disc_r = s * 0.46;
     let theme_rgb = [(theme >> 16) as u8, (theme >> 8) as u8, theme as u8];
     let half = stroke / 2.0;
@@ -174,7 +210,11 @@ fn default_icon(size: u32, theme: u32, legacy: bool) -> RgbaImage {
                 continue;
             }
             let mix = |ch: usize| ((255.0 * g + theme_rgb[ch] as f32 * d) / alpha).round() as u8;
-            img.put_pixel(px, py, Rgba([mix(0), mix(1), mix(2), (alpha * 255.0).round() as u8]));
+            img.put_pixel(
+                px,
+                py,
+                Rgba([mix(0), mix(1), mix(2), (alpha * 255.0).round() as u8]),
+            );
         }
     }
     img

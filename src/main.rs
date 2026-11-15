@@ -41,9 +41,12 @@ enum Cmd {
         /// Where to write the config
         #[arg(short, long, default_value = DEFAULT_CONFIG_FILE)]
         output: PathBuf,
-        /// Overwrite an existing file
+        /// Overwrite existing files
         #[arg(short, long)]
         force: bool,
+        /// Also write a CI workflow that builds the app (an existing config is then kept)
+        #[arg(long, value_enum, value_name = "PROVIDER")]
+        ci: Option<CiProvider>,
     },
     /// Check that the build tools are installed correctly
     Doctor {
@@ -115,8 +118,16 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Cmd::Build(args) => cmd_build(*args),
-        Cmd::Init { url, output, force } => cmd_init(url, &output, force),
-        Cmd::Doctor { platform: Some(Platform::Ios), .. } => cmd_doctor_ios(),
+        Cmd::Init {
+            url,
+            output,
+            force,
+            ci,
+        } => cmd_init(url, &output, force, ci),
+        Cmd::Doctor {
+            platform: Some(Platform::Ios),
+            ..
+        } => cmd_doctor_ios(),
         Cmd::Doctor { sdk, jdk, .. } => cmd_doctor(sdk.as_deref(), jdk.as_deref()),
         Cmd::Keygen(args) => cmd_keygen(args),
     }
@@ -135,7 +146,11 @@ fn cmd_build(args: BuildArgs) -> Result<()> {
         None => args.app,
     };
     let cfg = config::resolve(opts)?;
-    let flags = builder::BuildFlags { keep_build: args.keep_build, verbose: args.verbose, install: args.install };
+    let flags = builder::BuildFlags {
+        keep_build: args.keep_build,
+        verbose: args.verbose,
+        install: args.install,
+    };
     if cfg.platform == Platform::Ios {
         return finish_ios_build(&cfg, &flags);
     }
@@ -144,7 +159,10 @@ fn cmd_build(args: BuildArgs) -> Result<()> {
     let size = std::fs::metadata(&apk).map(|m| m.len()).unwrap_or(0);
     println!();
     println!("Done! {} ({:.1} KB)", apk.display(), size as f64 / 1024.0);
-    println!("  App:     {} {} (code {})", cfg.name, cfg.version_name, cfg.version_code);
+    println!(
+        "  App:     {} {} (code {})",
+        cfg.name, cfg.version_name, cfg.version_code
+    );
     println!("  Package: {}", cfg.package);
     if cfg.keystore.is_none() {
         println!(
@@ -167,25 +185,90 @@ fn finish_ios_build(cfg: &config::AppConfig, flags: &builder::BuildFlags) -> Res
         let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
         println!("Done! {} ({:.1} KB)", out.display(), size as f64 / 1024.0);
     }
-    println!("  App:       {} {} (build {})", cfg.name, cfg.version_name, cfg.version_code);
+    println!(
+        "  App:       {} {} (build {})",
+        cfg.name, cfg.version_name, cfg.version_code
+    );
     println!("  Bundle ID: {}", cfg.bundle_id);
     if cfg.simulator && !flags.install {
-        println!("  Install:   xcrun simctl install booted \"{}\"", out.display());
+        println!(
+            "  Install:   xcrun simctl install booted \"{}\"",
+            out.display()
+        );
     }
     Ok(())
 }
 
-fn cmd_init(url: Option<String>, output: &Path, force: bool) -> Result<()> {
-    if output.exists() && !force {
-        bail!("{} already exists (use --force to overwrite)", output.display());
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum CiProvider {
+    /// GitHub Actions: .github/workflows/url-to-apk.yml
+    Github,
+}
+
+/// The example workflow doubles as the `init --ci github` template.
+const GITHUB_WORKFLOW: &str = include_str!("../examples/github-actions.yml");
+const GITHUB_WORKFLOW_PATH: &str = ".github/workflows/url-to-apk.yml";
+
+fn github_workflow(config_path: &Path) -> String {
+    let config = config_path.to_string_lossy().replace('\\', "/");
+    let config = config.strip_prefix("./").unwrap_or(&config);
+    GITHUB_WORKFLOW.replace(
+        &format!("URL2APK_CONFIG: {DEFAULT_CONFIG_FILE}"),
+        &format!("URL2APK_CONFIG: {config}"),
+    )
+}
+
+fn cmd_init(url: Option<String>, output: &Path, force: bool, ci: Option<CiProvider>) -> Result<()> {
+    let workflow = ci.map(|CiProvider::Github| PathBuf::from(GITHUB_WORKFLOW_PATH));
+    if let Some(wf) = workflow.as_ref().filter(|wf| wf.exists() && !force) {
+        bail!("{} already exists (use --force to overwrite)", wf.display());
     }
-    let url = match url {
-        Some(u) => config::parse_url(&u)?.to_string(),
-        None => "https://example.com".to_string(),
-    };
-    std::fs::write(output, config::init_template(&url))
-        .with_context(|| format!("cannot write {}", output.display()))?;
-    println!("Wrote {}. Edit it, then run `url-to-apk build`.", output.display());
+
+    // With --ci, an existing config is reused so the command can add CI to a set-up project.
+    let keep_config = output.exists() && !force && workflow.is_some();
+    if output.exists() && !force && !keep_config {
+        bail!(
+            "{} already exists (use --force to overwrite)",
+            output.display()
+        );
+    }
+    if keep_config {
+        println!("Keeping existing {}.", output.display());
+    } else {
+        let url = match url {
+            Some(u) => config::parse_url(&u)?.to_string(),
+            None => "https://example.com".to_string(),
+        };
+        if let Some(dir) = output.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("cannot create {}", dir.display()))?;
+        }
+        std::fs::write(output, config::init_template(&url))
+            .with_context(|| format!("cannot write {}", output.display()))?;
+        println!(
+            "Wrote {}. Edit it, then run `url-to-apk build`.",
+            output.display()
+        );
+    }
+
+    match workflow {
+        Some(wf) => {
+            if let Some(dir) = wf.parent() {
+                std::fs::create_dir_all(dir)
+                    .with_context(|| format!("cannot create {}", dir.display()))?;
+            }
+            std::fs::write(&wf, github_workflow(output))
+                .with_context(|| format!("cannot write {}", wf.display()))?;
+            println!(
+                "Wrote {}. Commit both files, add the signing secrets listed at the top of the\n\
+                 workflow, then push a tag (e.g. v1.0.0) or run it from the Actions tab.",
+                wf.display()
+            );
+        }
+        None => println!(
+            "Tip: `url-to-apk init --ci github` adds a GitHub Actions workflow that builds the app."
+        ),
+    }
     Ok(())
 }
 
@@ -199,17 +282,29 @@ fn cmd_doctor(sdk: Option<&Path>, jdk: Option<&Path>) -> Result<()> {
         }
     };
     println!("Checking build environment:");
-    report("JDK", toolchain::find_jdk(jdk).map(|j| j.home.display().to_string()));
+    report(
+        "JDK",
+        toolchain::find_jdk(jdk).map(|j| j.home.display().to_string()),
+    );
     match toolchain::find_sdk(sdk) {
         Ok(root) => {
             report("Android SDK", Ok(root.display().to_string()));
-            report("build-tools", toolchain::find_build_tools(&root).map(|b| b.version));
-            report("platform", toolchain::find_platform(&root, None).map(|p| format!("android-{}", p.api)));
+            report(
+                "build-tools",
+                toolchain::find_build_tools(&root).map(|b| b.version),
+            );
+            report(
+                "platform",
+                toolchain::find_platform(&root, None).map(|p| format!("android-{}", p.api)),
+            );
             let adb = root.join("platform-tools").join(toolchain::exe("adb"));
             if adb.is_file() {
                 println!("  [ok]   {:<12} {}", "adb", adb.display());
             } else {
-                println!("  [warn] {:<12} not installed (only needed for --install)", "adb");
+                println!(
+                    "  [warn] {:<12} not installed (only needed for --install)",
+                    "adb"
+                );
             }
         }
         Err(e) => report("Android SDK", Err(e)),
@@ -237,7 +332,9 @@ fn cmd_doctor_ios() -> Result<()> {
         println!("  {tag} {label:<12} {msg}");
     }
     if ok {
-        println!("\nAll good. Try: url-to-apk build https://example.com --platform ios --simulator");
+        println!(
+            "\nAll good. Try: url-to-apk build https://example.com --platform ios --simulator"
+        );
         Ok(())
     } else {
         bail!("environment is incomplete; see the messages above")
@@ -246,11 +343,26 @@ fn cmd_doctor_ios() -> Result<()> {
 
 fn cmd_keygen(args: KeygenArgs) -> Result<()> {
     if args.output.exists() {
-        bail!("{} already exists; refusing to overwrite a signing key", args.output.display());
+        bail!(
+            "{} already exists; refusing to overwrite a signing key",
+            args.output.display()
+        );
     }
     let jdk = toolchain::find_jdk(args.jdk.as_deref())?;
-    builder::generate_keystore(&jdk, &args.output, &args.alias, &args.password, &args.dname, args.validity, false)?;
-    println!("Created {} (alias `{}`).", args.output.display(), args.alias);
+    builder::generate_keystore(
+        &jdk,
+        &args.output,
+        &args.alias,
+        &args.password,
+        &args.dname,
+        args.validity,
+        false,
+    )?;
+    println!(
+        "Created {} (alias `{}`).",
+        args.output.display(),
+        args.alias
+    );
     println!("Back it up: you need this exact key to publish updates to your app.");
     println!(
         "Build with: url-to-apk build <URL> --keystore {} --key-alias {}  (password via URL2APK_STORE_PASSWORD)",
@@ -258,4 +370,44 @@ fn cmd_keygen(args: KeygenArgs) -> Result<()> {
         args.alias
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workflow_template() {
+        assert_eq!(github_workflow(Path::new("url2apk.toml")), GITHUB_WORKFLOW);
+        let wf = github_workflow(Path::new(".\\apps\\shop.toml"));
+        assert!(wf.contains("URL2APK_CONFIG: apps/shop.toml"));
+        assert!(!wf.contains("URL2APK_CONFIG: url2apk.toml"));
+        assert!(!wf.contains('\t'), "tabs are invalid YAML indentation");
+    }
+
+    #[test]
+    fn workflow_flags_exist() {
+        // Every flag the workflow passes to `build` must exist.
+        Cli::try_parse_from([
+            "url-to-apk",
+            "build",
+            "--config",
+            "x.toml",
+            "--platform",
+            "ios",
+            "--simulator=false",
+            "--version-code",
+            "7",
+            "-o",
+            "dist/app.ipa",
+            "--provisioning-profile",
+            "p",
+            "--keystore",
+            "k",
+            "--key-alias",
+            "a",
+        ])
+        .map_err(|e| e.to_string())
+        .unwrap();
+    }
 }

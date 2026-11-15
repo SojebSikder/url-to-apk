@@ -45,6 +45,8 @@ url-to-apk doctor --platform ios   # iOS
 ## Install
 
 ```sh
+cargo install --git https://github.com/SojebSikder/url-to-apk
+# or, from a clone of this repo:
 cargo install --path .
 ```
 
@@ -74,10 +76,53 @@ url-to-apk build https://example.com --platform ios \
 url-to-apk init https://example.com   # writes a documented url2apk.toml
 url-to-apk build                      # picks up ./url2apk.toml automatically
 url-to-apk build --platform ios       # same config, iOS build
+url-to-apk init --ci github           # adds a GitHub Actions workflow (see below)
 ```
 
 CLI flags override values in the config file. Boolean flags accept `--flag` or
 `--flag=false`. Run `url-to-apk build --help` for every option.
+
+## Build on GitHub Actions
+
+Build both apps in the cloud, including iOS without owning a Mac:
+
+```sh
+url-to-apk init https://example.com --ci github
+```
+
+This writes `url2apk.toml` and `.github/workflows/url-to-apk.yml`. If `url2apk.toml` already
+exists, it's kept. You can also copy [`examples/github-actions.yml`](examples/github-actions.yml)
+by hand. Commit both files, then run the workflow from the **Actions** tab or push a tag:
+
+```sh
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The workflow builds the APK on `ubuntu-latest` and the IPA on `macos-latest`. It uploads both
+as workflow artifacts and, for tags, attaches them to the GitHub Release. The run number is
+used as the version code, so every build can update the previous one. Delete a job if you
+only need one platform.
+
+Signing comes from repository secrets (**Settings > Secrets and variables > Actions**). All
+are optional:
+
+| Secret                   | Value                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url-to-apk keygen`)                  |
+| `ANDROID_STORE_PASSWORD` | The keystore password                                                                    |
+| `ANDROID_KEY_ALIAS`      | The key alias (default `release`)                                                        |
+| `IOS_CERT_P12_B64`       | Your Apple Development/Distribution certificate exported from Keychain as `.p12`, base64 |
+| `IOS_CERT_PASSWORD`      | The `.p12` password                                                                      |
+| `IOS_PROFILE_B64`        | The `.mobileprovision` matching `bundle_id`, base64                                      |
+| `URL_TO_APK_TOKEN`       | Only while this repo is private: a token with read access to it                          |
+
+Encode files with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux), or on Windows
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("FILE"))` in PowerShell.
+
+- Without the Android keystore, each run signs with a new throwaway key, so a new APK can't
+  be installed over an older one. The workflow shows a warning when this happens.
+- Without the iOS secrets you get an ad-hoc signed `.ipa`. Re-sign it with Sideloadly,
+  AltStore, etc. to install it on a device.
 
 ## What the generated app does
 

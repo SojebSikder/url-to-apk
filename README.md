@@ -44,6 +44,10 @@ url-to-apk doctor --platform ios   # iOS
 
 ## Install
 
+Download a prebuilt binary for Windows, macOS or Linux from the
+[Releases](https://github.com/SojebSikder/url-to-apk/releases) page and put it on your
+`PATH`. Or build it with Rust:
+
 ```sh
 cargo install --git https://github.com/SojebSikder/url-to-apk
 # or, from a clone of this repo:
@@ -98,23 +102,18 @@ by hand. Commit both files, then run the workflow from the **Actions** tab or pu
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-The workflow builds the APK on `ubuntu-latest` and the IPA on `macos-latest`. It uploads both
-as workflow artifacts and, for tags, attaches them to the GitHub Release. The run number is
-used as the version code, so every build can update the previous one. Delete a job if you
-only need one platform.
-
 Signing comes from repository secrets (**Settings > Secrets and variables > Actions**). All
 are optional:
 
-| Secret                   | Value                                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url-to-apk keygen`)                  |
-| `ANDROID_STORE_PASSWORD` | The keystore password                                                                    |
-| `ANDROID_KEY_ALIAS`      | The key alias (default `release`)                                                        |
-| `IOS_CERT_P12_B64`       | Your Apple Development/Distribution certificate exported from Keychain as `.p12`, base64 |
-| `IOS_CERT_PASSWORD`      | The `.p12` password                                                                      |
-| `IOS_PROFILE_B64`        | The `.mobileprovision` matching `bundle_id`, base64                                      |
-| `URL_TO_APK_TOKEN`       | Only while this repo is private: a token with read access to it                          |
+| Secret                   | Value                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| `ANDROID_KEYSTORE_B64`   | Your keystore, base64-encoded (create it once with `url-to-apk keygen`)                    |
+| `ANDROID_STORE_PASSWORD` | The keystore password                                                                      |
+| `ANDROID_KEY_ALIAS`      | The key alias (default `release`)                                                          |
+| `IOS_CERT_P12_B64`       | Your Apple Development/Distribution certificate exported from Keychain as `.p12`, base64   |
+| `IOS_CERT_PASSWORD`      | The `.p12` password                                                                        |
+| `IOS_PROFILE_B64`        | The `.mobileprovision` matching `bundle_id`, base64                                        |
+| `URL_TO_APK_TOKEN`       | Only while this repo is private: a fine-grained token with read-only Contents access to it |
 
 Encode files with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux), or on Windows
 `[Convert]::ToBase64String([IO.File]::ReadAllBytes("FILE"))` in PowerShell.

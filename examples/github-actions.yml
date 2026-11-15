@@ -17,6 +17,7 @@
 #                           Without the iOS secrets you get an ad-hoc signed .ipa (re-sign it
 #                           with Sideloadly, AltStore, ... to install it on a device).
 #   URL_TO_APK_TOKEN        only while the url-to-apk repo is private: a token that can read it
+#                           (fine-grained, read-only Contents access to SojebSikder/url-to-apk)
 #
 # Make base64 values with `base64 -i FILE` (macOS) or `base64 -w0 FILE` (Linux).
 # Don't need one platform? Delete its job.
@@ -33,7 +34,8 @@ permissions:
 
 env:
   URL2APK_CONFIG: url2apk.toml
-  URL_TO_APK_GIT: https://github.com/SojebSikder/url-to-apk
+  URL_TO_APK_REPO: SojebSikder/url-to-apk
+  URL_TO_APK_VERSION: latest # or a release tag such as v0.1.0, for reproducible builds
 
 jobs:
   android:
@@ -48,13 +50,34 @@ jobs:
 
       - name: Install url-to-apk
         env:
+          GH_TOKEN: ${{ secrets.URL_TO_APK_TOKEN || github.token }}
           TOKEN: ${{ secrets.URL_TO_APK_TOKEN }}
         run: |
-          if [ -n "$TOKEN" ]; then
-            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-            export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          # Prebuilt binary from the url-to-apk GitHub Releases; builds from source as a fallback.
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) target=x86_64-unknown-linux-gnu ;;
+            Linux-ARM64) target=aarch64-unknown-linux-gnu ;;
+            macOS-ARM64) target=aarch64-apple-darwin ;;
+            macOS-X64) target=x86_64-apple-darwin ;;
+            *) target=unknown ;;
+          esac
+          tag=""
+          if [ "$URL_TO_APK_VERSION" != "latest" ]; then tag="$URL_TO_APK_VERSION"; fi
+          dir="$RUNNER_TEMP/url-to-apk"
+          mkdir -p "$dir"
+          if gh release download $tag --repo "$URL_TO_APK_REPO" --pattern "url-to-apk-$target.tar.xz" --dir "$dir"; then
+            tar -xJf "$dir/url-to-apk-$target.tar.xz" -C "$dir"
+            bin="$(find "$dir" -type f -name url-to-apk | head -n 1)"
+            chmod +x "$bin"
+            echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+          else
+            echo "::warning::No prebuilt url-to-apk for $target, building it from source"
+            if [ -n "$TOKEN" ]; then
+              git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+              export CARGO_NET_GIT_FETCH_WITH_CLI=true
+            fi
+            cargo install --locked --git "https://github.com/$URL_TO_APK_REPO" ${tag:+--tag "$tag"}
           fi
-          cargo install --locked --git "$URL_TO_APK_GIT"
 
       - name: Build APK
         env:
@@ -92,13 +115,34 @@ jobs:
 
       - name: Install url-to-apk
         env:
+          GH_TOKEN: ${{ secrets.URL_TO_APK_TOKEN || github.token }}
           TOKEN: ${{ secrets.URL_TO_APK_TOKEN }}
         run: |
-          if [ -n "$TOKEN" ]; then
-            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-            export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          # Prebuilt binary from the url-to-apk GitHub Releases; builds from source as a fallback.
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) target=x86_64-unknown-linux-gnu ;;
+            Linux-ARM64) target=aarch64-unknown-linux-gnu ;;
+            macOS-ARM64) target=aarch64-apple-darwin ;;
+            macOS-X64) target=x86_64-apple-darwin ;;
+            *) target=unknown ;;
+          esac
+          tag=""
+          if [ "$URL_TO_APK_VERSION" != "latest" ]; then tag="$URL_TO_APK_VERSION"; fi
+          dir="$RUNNER_TEMP/url-to-apk"
+          mkdir -p "$dir"
+          if gh release download $tag --repo "$URL_TO_APK_REPO" --pattern "url-to-apk-$target.tar.xz" --dir "$dir"; then
+            tar -xJf "$dir/url-to-apk-$target.tar.xz" -C "$dir"
+            bin="$(find "$dir" -type f -name url-to-apk | head -n 1)"
+            chmod +x "$bin"
+            echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+          else
+            echo "::warning::No prebuilt url-to-apk for $target, building it from source"
+            if [ -n "$TOKEN" ]; then
+              git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+              export CARGO_NET_GIT_FETCH_WITH_CLI=true
+            fi
+            cargo install --locked --git "https://github.com/$URL_TO_APK_REPO" ${tag:+--tag "$tag"}
           fi
-          cargo install --locked --git "$URL_TO_APK_GIT"
 
       - name: Build IPA
         env:

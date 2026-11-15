@@ -19,3 +19,8 @@ tempfile = "3.27.0"
 toml = "1.2.1"
 url = "2.5.8"
 zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
+
+# The profile that dist will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

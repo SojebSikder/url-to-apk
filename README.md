@@ -1,14 +1,16 @@
 # url-to-apk
 
 Turn any website into an installable Android app (a WebView wrapper) with one command.
+iOS is supported too (on macOS; see [iOS](#ios)).
 
 ```sh
 url-to-apk build https://example.com
+url-to-apk build https://example.com --platform ios --simulator --install
 ```
 
 No Gradle, no Android Studio project. The tool generates a tiny dependency-free
 Android app and builds it directly with the Android SDK tools
-(`aapt2` → `javac` → `d8` → `zipalign` → `apksigner`). A typical APK is ~40–100 KB
+(`aapt2` -> `javac` -> `d8` -> `zipalign` -> `apksigner`). A typical APK is ~40–100 KB
 and builds in a few seconds.
 
 ## Requirements
@@ -94,6 +96,62 @@ URL2APK_STORE_PASSWORD='s3cret!' url-to-apk build https://example.com \
 ```
 
 Back up your keystore and password. If you lose them, you can't update the app.
+
+## iOS
+
+`--platform ios` (or `platform = "ios"` in `url2apk.toml`) builds a native WKWebView app
+from the same options. The tool generates a small Swift app and builds it with the Xcode
+command-line tools (`swiftc` -> `actool` -> `codesign`), so there's no Xcode project.
+
+**Requirements:** macOS with the full Xcode app (`sudo xcode-select -s /Applications/Xcode.app`).
+Apple's SDK and signing tools only run on macOS. On Windows or Linux, use a Mac or a macOS CI
+runner such as GitHub Actions `runs-on: macos-latest`. Check your setup with
+`url-to-apk doctor --platform ios`.
+
+```sh
+# Simulator: builds Example-1.0.0.app, installs it on the booted Simulator and launches it
+open -a Simulator
+url-to-apk build https://example.com --platform ios --simulator --install
+
+# Device: a signed .ipa for your development or distribution profile
+url-to-apk build https://example.com --platform ios \
+  --bundle-id com.example.app --provisioning-profile MyApp.mobileprovision
+
+# Without a profile you get an ad-hoc signed .ipa for re-signing tools (Sideloadly, AltStore, ...)
+url-to-apk build https://example.com --platform ios
+```
+
+| Option                   | Notes                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `--bundle-id`            | Defaults to `--package` with `_` replaced by `-`; must match the provisioning profile    |
+| `--ios-min-version`      | Default `15.0`                                                                           |
+| `--simulator`            | Build a `.app` for the Simulator instead of an `.ipa`                                    |
+| `--provisioning-profile` | Entitlements and team come from the profile; wildcard profiles work                      |
+| `--signing-identity`     | Defaults to "Apple Development" for development profiles, otherwise "Apple Distribution" |
+
+`--version-name` becomes `CFBundleShortVersionString`, so for iOS it must be 1 to 3 numbers
+separated by dots (e.g. `1.2.0`). `--version-code` becomes `CFBundleVersion`.
+
+The iOS app supports the same features as the Android app: allowed hosts and external links,
+`tel:`/`mailto:`/other app links, the offline screen and cached pages, pull to refresh, file
+uploads (camera and photo library), downloads (shown in the share sheet, so you can "Save to
+Files"), camera/microphone/location permissions, JS `alert`/`confirm`/`prompt`, fullscreen
+video, theme colors, launch screen color, orientation lock, `--fullscreen`,
+`--keep-screen-on`, user agent options, `--debug-webview` (Safari Web Inspector, iOS 16.4+),
+and recovery when the web content process crashes. Swiping from the screen edge goes back
+and forward.
+
+iOS differences:
+
+- `--deep-links` is ignored. Universal Links need an Associated Domains entitlement and an
+  `apple-app-site-association` file on your site.
+- Android-only options (`--min-sdk`, `--adaptive-icon`, `--keystore`, ...) are ignored.
+- Camera and microphone usage descriptions are always included, because the file picker's
+  "Take Photo/Video" option needs them.
+- `--install` only works with `--simulator`. For a device, install the `.ipa` with Xcode
+  (Window > Devices and Simulators) or `xcrun devicectl device install app --device <UDID> <ipa>`.
+- App Store uploads need a distribution profile. Apple may reject apps that only wrap a
+  website (App Review Guideline 4.2).
 
 ## Notes and limitations
 

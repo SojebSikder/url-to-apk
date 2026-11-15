@@ -1,6 +1,7 @@
 mod builder;
 mod config;
 mod icon;
+mod ios;
 mod project;
 mod toolchain;
 
@@ -10,16 +11,17 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
-use config::{AppOptions, DEFAULT_CONFIG_FILE};
+use config::{AppOptions, DEFAULT_CONFIG_FILE, Platform};
 
 #[derive(Parser)]
 #[command(
     name = "url-to-apk",
     version,
-    about = "Turn any website into an Android app (WebView APK)",
+    about = "Turn any website into an Android app (WebView APK) or an iOS app (IPA)",
     after_help = "Examples:\n  \
         url-to-apk build https://example.com\n  \
         url-to-apk build https://example.com -n \"Example\" -i logo.png --theme-color \"#0F9D58\" --pull-to-refresh\n  \
+        url-to-apk build https://example.com --platform ios --simulator --install\n  \
         url-to-apk init https://example.com && url-to-apk build\n  \
         url-to-apk doctor"
 )]
@@ -30,7 +32,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Build a signed APK for a website
+    /// Build a signed APK (or an iOS app with --platform ios) for a website
     Build(Box<BuildArgs>),
     /// Write a url2apk.toml config file with every option documented
     Init {
@@ -43,8 +45,11 @@ enum Cmd {
         #[arg(short, long)]
         force: bool,
     },
-    /// Check that the JDK and Android SDK are installed correctly
+    /// Check that the build tools are installed correctly
     Doctor {
+        /// Platform to check [default: android]
+        #[arg(long, value_enum)]
+        platform: Option<Platform>,
         #[arg(long)]
         sdk: Option<PathBuf>,
         #[arg(long)]
@@ -63,7 +68,7 @@ struct BuildArgs {
     #[arg(short, long)]
     config: Option<PathBuf>,
 
-    /// Install and launch the APK on a connected device via adb
+    /// Install and launch the app: on a connected device via adb (Android) or the booted Simulator (iOS)
     #[arg(long)]
     install: bool,
 
@@ -111,7 +116,8 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Cmd::Build(args) => cmd_build(*args),
         Cmd::Init { url, output, force } => cmd_init(url, &output, force),
-        Cmd::Doctor { sdk, jdk } => cmd_doctor(sdk.as_deref(), jdk.as_deref()),
+        Cmd::Doctor { platform: Some(Platform::Ios), .. } => cmd_doctor_ios(),
+        Cmd::Doctor { sdk, jdk, .. } => cmd_doctor(sdk.as_deref(), jdk.as_deref()),
         Cmd::Keygen(args) => cmd_keygen(args),
     }
 }
@@ -130,6 +136,9 @@ fn cmd_build(args: BuildArgs) -> Result<()> {
     };
     let cfg = config::resolve(opts)?;
     let flags = builder::BuildFlags { keep_build: args.keep_build, verbose: args.verbose, install: args.install };
+    if cfg.platform == Platform::Ios {
+        return finish_ios_build(&cfg, &flags);
+    }
     let apk = builder::build(&cfg, &flags)?;
 
     let size = std::fs::metadata(&apk).map(|m| m.len()).unwrap_or(0);
@@ -145,6 +154,23 @@ fn cmd_build(args: BuildArgs) -> Result<()> {
     }
     if !args.install {
         println!("  Install: adb install -r \"{}\"", apk.display());
+    }
+    Ok(())
+}
+
+fn finish_ios_build(cfg: &config::AppConfig, flags: &builder::BuildFlags) -> Result<()> {
+    let out = ios::build(cfg, flags)?;
+    println!();
+    if out.is_dir() {
+        println!("Done! {}", out.display());
+    } else {
+        let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        println!("Done! {} ({:.1} KB)", out.display(), size as f64 / 1024.0);
+    }
+    println!("  App:       {} {} (build {})", cfg.name, cfg.version_name, cfg.version_code);
+    println!("  Bundle ID: {}", cfg.bundle_id);
+    if cfg.simulator && !flags.install {
+        println!("  Install:   xcrun simctl install booted \"{}\"", out.display());
     }
     Ok(())
 }
@@ -190,6 +216,28 @@ fn cmd_doctor(sdk: Option<&Path>, jdk: Option<&Path>) -> Result<()> {
     }
     if ok {
         println!("\nAll good. Try: url-to-apk build https://example.com");
+        Ok(())
+    } else {
+        bail!("environment is incomplete; see the messages above")
+    }
+}
+
+fn cmd_doctor_ios() -> Result<()> {
+    println!("Checking iOS build environment:");
+    let mut ok = true;
+    for (label, status, msg) in ios::doctor_checks() {
+        let tag = match status {
+            ios::CheckStatus::Ok => "[ok]  ",
+            ios::CheckStatus::Warn => "[warn]",
+            ios::CheckStatus::Fail => {
+                ok = false;
+                "[fail]"
+            }
+        };
+        println!("  {tag} {label:<12} {msg}");
+    }
+    if ok {
+        println!("\nAll good. Try: url-to-apk build https://example.com --platform ios --simulator");
         Ok(())
     } else {
         bail!("environment is incomplete; see the messages above")

@@ -1,4 +1,4 @@
-//! The build pipeline: aapt2 → javac → d8 → package → zipalign → apksigner.
+//! The build pipeline: aapt2 -> javac -> d8 -> package -> zipalign -> apksigner.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -24,13 +24,13 @@ const DEFAULT_KEY_PASSWORD: &str = "android";
 const STORE_PASS_ENV: &str = "URL2APK_INTERNAL_KS_PASS";
 const KEY_PASS_ENV: &str = "URL2APK_INTERNAL_KEY_PASS";
 
-struct Step {
-    n: usize,
-    total: usize,
+pub struct Step {
+    pub n: usize,
+    pub total: usize,
 }
 
 impl Step {
-    fn next(&mut self, msg: &str) {
+    pub fn next(&mut self, msg: &str) {
         self.n += 1;
         println!("[{}/{}] {msg}", self.n, self.total);
     }
@@ -41,10 +41,15 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
     let compile_sdk = tc.platform.api;
     let target_sdk = cfg.target_sdk.unwrap_or(compile_sdk);
     if cfg.min_sdk > target_sdk {
-        bail!("--min-sdk ({}) is higher than the target SDK ({target_sdk})", cfg.min_sdk);
+        bail!(
+            "--min-sdk ({}) is higher than the target SDK ({target_sdk})",
+            cfg.min_sdk
+        );
     }
     if flags.install && tc.adb.is_none() {
-        bail!("--install needs adb, but platform-tools is not installed (sdkmanager \"platform-tools\")");
+        bail!(
+            "--install needs adb, but platform-tools is not installed (sdkmanager \"platform-tools\")"
+        );
     }
 
     println!("Building {} ({}) from {}", cfg.name, cfg.package, cfg.url);
@@ -58,26 +63,12 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
         );
     }
 
-    // Workspace: a temp dir that is deleted afterwards, unless --keep-build.
-    let _temp;
-    let ws: PathBuf = match &flags.keep_build {
-        Some(dir) => {
-            if dir.exists() {
-                std::fs::remove_dir_all(dir)
-                    .with_context(|| format!("cannot clean build dir {}", dir.display()))?;
-            }
-            std::fs::create_dir_all(dir)?;
-            dir.clone()
-        }
-        None => {
-            let t = tempfile::Builder::new().prefix("url-to-apk-").tempdir()?;
-            let p = t.path().to_path_buf();
-            _temp = t;
-            p
-        }
-    };
+    let (ws, _temp) = workspace(flags)?;
     let v = flags.verbose;
-    let mut step = Step { n: 0, total: if flags.install { 8 } else { 7 } };
+    let mut step = Step {
+        n: 0,
+        total: if flags.install { 8 } else { 7 },
+    };
 
     step.next("Generating Android project");
     let proj = project::generate(cfg, &ws.join("project"), compile_sdk)?;
@@ -85,7 +76,12 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
     step.next("Compiling resources (aapt2)");
     let compiled = ws.join("compiled-res.zip");
     run(
-        Command::new(&tc.build_tools.aapt2).arg("compile").arg("--dir").arg(&proj.res).arg("-o").arg(&compiled),
+        Command::new(&tc.build_tools.aapt2)
+            .arg("compile")
+            .arg("--dir")
+            .arg(&proj.res)
+            .arg("-o")
+            .arg(&compiled),
         "aapt2 compile",
         v,
     )?;
@@ -139,14 +135,17 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
     add_dex(&base_apk, &dex_dir, &unaligned)?;
     let aligned = ws.join("aligned.apk");
     run(
-        Command::new(&tc.build_tools.zipalign).args(["-f", "-p", "4"]).arg(&unaligned).arg(&aligned),
+        Command::new(&tc.build_tools.zipalign)
+            .args(["-f", "-p", "4"])
+            .arg(&unaligned)
+            .arg(&aligned),
         "zipalign",
         v,
     )?;
 
     step.next("Signing APK (apksigner)");
     let signing = resolve_signing(cfg, &tc.jdk, v)?;
-    let output = output_path(cfg);
+    let output = output_path(cfg, "apk");
     if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
@@ -170,10 +169,20 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
     )
     .map_err(|e| {
         let msg = e.to_string();
-        if msg.contains("UnrecoverableKey") || msg.contains("BadPadding") || msg.contains("password") {
-            anyhow::anyhow!("signing failed: wrong keystore or key password for {}", signing.keystore.display())
+        if msg.contains("UnrecoverableKey")
+            || msg.contains("BadPadding")
+            || msg.contains("password")
+        {
+            anyhow::anyhow!(
+                "signing failed: wrong keystore or key password for {}",
+                signing.keystore.display()
+            )
         } else if msg.contains("No key with alias") || msg.contains("does not contain key") {
-            anyhow::anyhow!("signing failed: alias `{}` not found in {}", signing.alias, signing.keystore.display())
+            anyhow::anyhow!(
+                "signing failed: alias `{}` not found in {}",
+                signing.alias,
+                signing.keystore.display()
+            )
         } else {
             e
         }
@@ -183,7 +192,11 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
 
     step.next("Verifying signature");
     run(
-        Command::new(&tc.jdk.java).arg("-jar").arg(&tc.build_tools.apksigner_jar).arg("verify").arg(&output),
+        Command::new(&tc.jdk.java)
+            .arg("-jar")
+            .arg(&tc.build_tools.apksigner_jar)
+            .arg("verify")
+            .arg(&output),
         "apksigner verify",
         v,
     )?;
@@ -191,7 +204,11 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
     if flags.install {
         step.next("Installing on device (adb)");
         let adb = tc.adb.as_ref().expect("checked above");
-        run(Command::new(adb).arg("install").arg("-r").arg(&output), "adb install", v)?;
+        run(
+            Command::new(adb).arg("install").arg("-r").arg(&output),
+            "adb install",
+            v,
+        )?;
         run(
             Command::new(adb).args([
                 "shell",
@@ -211,17 +228,45 @@ pub fn build(cfg: &AppConfig, flags: &BuildFlags) -> Result<PathBuf> {
     Ok(output)
 }
 
+/// Build workspace: a temp dir deleted when the guard drops, or the
+/// (cleaned) --keep-build directory.
+pub fn workspace(flags: &BuildFlags) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+    match &flags.keep_build {
+        Some(dir) => {
+            if dir.exists() {
+                std::fs::remove_dir_all(dir)
+                    .with_context(|| format!("cannot clean build dir {}", dir.display()))?;
+            }
+            std::fs::create_dir_all(dir)?;
+            Ok((dir.clone(), None))
+        }
+        None => {
+            let t = tempfile::Builder::new().prefix("url-to-apk-").tempdir()?;
+            Ok((t.path().to_path_buf(), Some(t)))
+        }
+    }
+}
+
 fn javac(tc: &Toolchain, sources: &[PathBuf], out: &Path, verbose: bool) -> Result<()> {
     let base = |cmd: &mut Command| {
-        cmd.args(["-encoding", "UTF-8", "-nowarn", "-g:none"]).arg("-d").arg(out);
+        cmd.args(["-encoding", "UTF-8", "-nowarn", "-g:none"])
+            .arg("-d")
+            .arg(out);
     };
     // Java 8 bytecode against android.jar as the boot classpath is the most
     // faithful setup; JDKs that dropped `-source 8` fall back to 11.
     let mut cmd = Command::new(&tc.jdk.javac);
     base(&mut cmd);
-    cmd.args(["-source", "8", "-target", "8", "-Xlint:-options", "-bootclasspath"])
-        .arg(&tc.platform.android_jar)
-        .args(sources);
+    cmd.args([
+        "-source",
+        "8",
+        "-target",
+        "8",
+        "-Xlint:-options",
+        "-bootclasspath",
+    ])
+    .arg(&tc.platform.android_jar)
+    .args(sources);
     match run(&mut cmd, "javac", verbose) {
         Ok(_) => Ok(()),
         Err(e) if e.to_string().contains("option 8") => {
@@ -273,26 +318,39 @@ struct Signing {
 fn resolve_signing(cfg: &AppConfig, jdk: &Jdk, verbose: bool) -> Result<Signing> {
     if let Some(ks) = &cfg.keystore {
         if !ks.is_file() {
-            bail!("keystore not found: {} (create one with `url-to-apk keygen`)", ks.display());
+            bail!(
+                "keystore not found: {} (create one with `url-to-apk keygen`)",
+                ks.display()
+            );
         }
-        let store_password = cfg
-            .store_password
+        let store_password = cfg.store_password.clone().context(
+            "--keystore needs a password: set URL2APK_STORE_PASSWORD or pass --store-password",
+        )?;
+        let alias = cfg
+            .key_alias
             .clone()
-            .context("--keystore needs a password: set URL2APK_STORE_PASSWORD or pass --store-password")?;
-        let alias = cfg.key_alias.clone().context("--keystore needs --key-alias")?;
+            .context("--keystore needs --key-alias")?;
         return Ok(Signing {
             keystore: ks.clone(),
             alias,
-            key_password: cfg.key_password.clone().unwrap_or_else(|| store_password.clone()),
+            key_password: cfg
+                .key_password
+                .clone()
+                .unwrap_or_else(|| store_password.clone()),
             store_password,
         });
     }
 
-    let dir = dirs::home_dir().context("cannot determine home directory")?.join(".url-to-apk");
+    let dir = dirs::home_dir()
+        .context("cannot determine home directory")?
+        .join(".url-to-apk");
     let keystore = dir.join("default.keystore");
     if !keystore.is_file() {
         std::fs::create_dir_all(&dir)?;
-        println!("      Creating default signing key at {}", keystore.display());
+        println!(
+            "      Creating default signing key at {}",
+            keystore.display()
+        );
         generate_keystore(
             jdk,
             &keystore,
@@ -326,12 +384,23 @@ pub fn generate_keystore(
     }
     run(
         Command::new(&jdk.keytool)
-            .args(["-genkeypair", "-noprompt", "-storetype", "PKCS12", "-keystore"])
+            .args([
+                "-genkeypair",
+                "-noprompt",
+                "-storetype",
+                "PKCS12",
+                "-keystore",
+            ])
             .arg(path)
             .args(["-alias", alias, "-keyalg", "RSA", "-keysize", "2048"])
             .args(["-validity", &validity_days.to_string()])
             .args(["-dname", dname])
-            .args(["-storepass:env", STORE_PASS_ENV, "-keypass:env", STORE_PASS_ENV])
+            .args([
+                "-storepass:env",
+                STORE_PASS_ENV,
+                "-keypass:env",
+                STORE_PASS_ENV,
+            ])
             .env(STORE_PASS_ENV, password),
         "keytool",
         verbose,
@@ -339,19 +408,32 @@ pub fn generate_keystore(
     Ok(())
 }
 
-fn output_path(cfg: &AppConfig) -> PathBuf {
+/// `--output`, or `./<Name>-<version>.<ext>`.
+pub fn output_path(cfg: &AppConfig, ext: &str) -> PathBuf {
     if let Some(o) = &cfg.output {
         return o.clone();
     }
-    let safe = |s: &str| -> String {
-        s.chars()
-            .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '-' })
-            .collect::<String>()
-            .trim_matches('-')
-            .to_string()
-    };
-    let name = Some(safe(&cfg.name)).filter(|s| !s.is_empty()).unwrap_or_else(|| "app".into());
-    PathBuf::from(format!("{name}-{}.apk", safe(&cfg.version_name)))
+    let name = Some(safe_file_name(&cfg.name))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "app".into());
+    PathBuf::from(format!(
+        "{name}-{}.{ext}",
+        safe_file_name(&cfg.version_name)
+    ))
+}
+
+pub fn safe_file_name(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 fn collect_files(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -369,13 +451,27 @@ fn collect_files(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) -> Result<()> {
 /// Runs a tool, returning its combined output or an error that includes it.
 pub fn run(cmd: &mut Command, what: &str, verbose: bool) -> Result<String> {
     if verbose {
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        println!("      $ {} {}", cmd.get_program().to_string_lossy(), args.join(" "));
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        println!(
+            "      $ {} {}",
+            cmd.get_program().to_string_lossy(),
+            args.join(" ")
+        );
     }
-    let out = cmd
-        .output()
-        .with_context(|| format!("failed to start {what} ({})", cmd.get_program().to_string_lossy()))?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let out = cmd.output().with_context(|| {
+        format!(
+            "failed to start {what} ({})",
+            cmd.get_program().to_string_lossy()
+        )
+    })?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     if !out.status.success() {
         bail!("{what} failed ({}):\n{}", out.status, text.trim());
     }

@@ -12,6 +12,15 @@ pub const DEFAULT_CONFIG_FILE: &str = "url2apk.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
+pub enum Platform {
+    /// Signed APK, built with the Android SDK (any OS)
+    Android,
+    /// IPA for devices or .app for the Simulator, built with Xcode (macOS only)
+    Ios,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Orientation {
     /// Follow the device's auto-rotate setting
     Auto,
@@ -50,6 +59,10 @@ pub enum Permission {
 pub struct AppOptions {
     /// Website URL to wrap, e.g. https://example.com
     pub url: Option<String>,
+
+    /// Target platform [default: android]
+    #[arg(long, value_enum)]
+    pub platform: Option<Platform>,
 
     /// App name shown under the launcher icon [default: derived from the domain]
     #[arg(short, long, help_heading = "App")]
@@ -148,7 +161,12 @@ pub struct AppOptions {
     pub debug_webview: Option<bool>,
 
     /// Runtime permission the website may request (repeatable)
-    #[arg(long = "permission", value_enum, value_name = "PERMISSION", help_heading = "Behavior")]
+    #[arg(
+        long = "permission",
+        value_enum,
+        value_name = "PERMISSION",
+        help_heading = "Behavior"
+    )]
     pub permissions: Vec<Permission>,
 
     /// Title of the offline / error screen
@@ -196,12 +214,42 @@ pub struct AppOptions {
     pub key_alias: Option<String>,
 
     /// Keystore password (prefer the env var over the flag)
-    #[arg(long, env = "URL2APK_STORE_PASSWORD", hide_env_values = true, help_heading = "Signing")]
+    #[arg(
+        long,
+        env = "URL2APK_STORE_PASSWORD",
+        hide_env_values = true,
+        help_heading = "Signing"
+    )]
     pub store_password: Option<String>,
 
     /// Key password [default: the keystore password]
-    #[arg(long, env = "URL2APK_KEY_PASSWORD", hide_env_values = true, help_heading = "Signing")]
+    #[arg(
+        long,
+        env = "URL2APK_KEY_PASSWORD",
+        hide_env_values = true,
+        help_heading = "Signing"
+    )]
     pub key_password: Option<String>,
+
+    /// iOS bundle identifier [default: the package, with `_` replaced by `-`]
+    #[arg(long, help_heading = "iOS")]
+    pub bundle_id: Option<String>,
+
+    /// Minimum iOS version [default: 15.0]
+    #[arg(long, value_name = "VERSION", help_heading = "iOS")]
+    pub ios_min_version: Option<String>,
+
+    /// Build a .app for the iOS Simulator instead of an .ipa for devices
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true", help_heading = "iOS")]
+    pub simulator: Option<bool>,
+
+    /// Provisioning profile (.mobileprovision) for signing device builds [default: ad-hoc signed]
+    #[arg(long, value_name = "FILE", help_heading = "iOS")]
+    pub provisioning_profile: Option<PathBuf>,
+
+    /// Code signing identity, e.g. "Apple Development: Jane Doe (ABCDE12345)" [default: from the profile type]
+    #[arg(long, value_name = "IDENTITY", help_heading = "iOS")]
+    pub signing_identity: Option<String>,
 }
 
 impl AppOptions {
@@ -210,12 +258,19 @@ impl AppOptions {
     pub fn from_file(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("cannot read config file {}", path.display()))?;
-        let mut opts: AppOptions =
-            toml::from_str(&text).with_context(|| format!("invalid config file {}", path.display()))?;
+        let mut opts: AppOptions = toml::from_str(&text)
+            .with_context(|| format!("invalid config file {}", path.display()))?;
         let base = path.parent().unwrap_or(Path::new("."));
-        for p in [&mut opts.icon, &mut opts.output, &mut opts.keystore, &mut opts.sdk, &mut opts.jdk]
-            .into_iter()
-            .flatten()
+        for p in [
+            &mut opts.icon,
+            &mut opts.output,
+            &mut opts.keystore,
+            &mut opts.sdk,
+            &mut opts.jdk,
+            &mut opts.provisioning_profile,
+        ]
+        .into_iter()
+        .flatten()
         {
             if p.is_relative() {
                 *p = base.join(&*p);
@@ -235,12 +290,13 @@ impl AppOptions {
             };
         }
         merge!(
-            opt: url, name, package, version_name, version_code, icon, icon_background, adaptive_icon,
+            opt: url, platform, name, package, version_name, version_code, icon, icon_background, adaptive_icon,
                  theme_color, background_color, progress_color, orientation, fullscreen, keep_screen_on,
                  pull_to_refresh, deep_links, javascript, zoom, downloads, open_external_links,
                  user_agent, user_agent_suffix, allow_http, debug_webview, offline_title,
                  offline_message, retry_text, min_sdk, target_sdk, compile_sdk, output, sdk, jdk,
-                 keystore, key_alias, store_password, key_password ;
+                 keystore, key_alias, store_password, key_password, bundle_id, ios_min_version,
+                 simulator, provisioning_profile, signing_identity ;
             vec: allowed_hosts, permissions
         )
     }
@@ -249,6 +305,7 @@ impl AppOptions {
 /// Fully resolved and validated configuration.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
+    pub platform: Platform,
     pub url: Url,
     pub name: String,
     pub package: String,
@@ -288,6 +345,11 @@ pub struct AppConfig {
     pub key_alias: Option<String>,
     pub store_password: Option<String>,
     pub key_password: Option<String>,
+    pub bundle_id: String,
+    pub ios_min_version: String,
+    pub simulator: bool,
+    pub provisioning_profile: Option<PathBuf>,
+    pub signing_identity: Option<String>,
 }
 
 impl AppConfig {
@@ -303,7 +365,9 @@ impl AppConfig {
 
 fn base_host(url: &Url) -> String {
     let host = url.host_str().unwrap_or("app").to_ascii_lowercase();
-    host.strip_prefix("www.").map(str::to_string).unwrap_or(host)
+    host.strip_prefix("www.")
+        .map(str::to_string)
+        .unwrap_or(host)
 }
 
 pub fn resolve(o: AppOptions) -> Result<AppConfig> {
@@ -337,13 +401,16 @@ pub fn resolve(o: AppOptions) -> Result<AppConfig> {
     }
 
     if let Some(icon) = &o.icon
-        && !icon.is_file() {
-            bail!("icon file not found: {}", icon.display());
-        }
+        && !icon.is_file()
+    {
+        bail!("icon file not found: {}", icon.display());
+    }
 
     let theme_color = parse_color(o.theme_color.as_deref().unwrap_or("#2196F3"), "theme-color")?;
-    let background_color =
-        parse_color(o.background_color.as_deref().unwrap_or("#FFFFFF"), "background-color")?;
+    let background_color = parse_color(
+        o.background_color.as_deref().unwrap_or("#FFFFFF"),
+        "background-color",
+    )?;
     let progress_color = match &o.progress_color {
         Some(c) => parse_color(c, "progress-color")?,
         None => theme_color,
@@ -373,14 +440,45 @@ pub fn resolve(o: AppOptions) -> Result<AppConfig> {
         bail!("--min-sdk must be at least 21 (Android 5.0)");
     }
     if let Some(t) = o.target_sdk
-        && t < min_sdk {
-            bail!("--target-sdk ({t}) must be >= --min-sdk ({min_sdk})");
-        }
+        && t < min_sdk
+    {
+        bail!("--target-sdk ({t}) must be >= --min-sdk ({min_sdk})");
+    }
 
     let mut permissions = o.permissions;
+    permissions.sort_by_key(|p| *p as u8);
     permissions.dedup();
 
+    let platform = o.platform.unwrap_or(Platform::Android);
+    let bundle_id = match o.bundle_id {
+        Some(b) => b,
+        None => package.replace('_', "-"),
+    };
+    validate_bundle_id(&bundle_id)?;
+    let ios_min_version = o.ios_min_version.unwrap_or_else(|| "15.0".into());
+    let ios_major: u32 = ios_min_version
+        .split('.')
+        .next()
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    if !is_numeric_version(&ios_min_version) || ios_major < 15 {
+        bail!(
+            "--ios-min-version must be a version like 15.0 and at least 15.0, got `{ios_min_version}`"
+        );
+    }
+    if platform == Platform::Ios && !is_numeric_version(&version_name) {
+        bail!(
+            "iOS needs --version-name made of 1 to 3 numbers separated by dots (e.g. 1.2.0), got `{version_name}`"
+        );
+    }
+    if let Some(p) = &o.provisioning_profile
+        && !p.is_file()
+    {
+        bail!("provisioning profile not found: {}", p.display());
+    }
+
     Ok(AppConfig {
+        platform,
         allow_http: o.allow_http.unwrap_or(url.scheme() == "http"),
         url,
         name,
@@ -422,12 +520,43 @@ pub fn resolve(o: AppOptions) -> Result<AppConfig> {
         key_alias: o.key_alias,
         store_password: o.store_password,
         key_password: o.key_password,
+        bundle_id,
+        ios_min_version,
+        simulator: o.simulator.unwrap_or(false),
+        provisioning_profile: o.provisioning_profile,
+        signing_identity: o.signing_identity,
     })
+}
+
+/// 1 to 3 dot-separated integers, as required by `CFBundleShortVersionString`.
+fn is_numeric_version(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    (1..=3).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Bundle IDs allow letters, digits, `-` and `.` (no underscores).
+pub fn validate_bundle_id(b: &str) -> Result<()> {
+    let segments: Vec<&str> = b.split('.').collect();
+    let valid = segments.len() >= 2
+        && segments
+            .iter()
+            .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    if !valid {
+        bail!("invalid bundle ID `{b}` (use letters, digits, `-` and dots, e.g. com.example.app)");
+    }
+    Ok(())
 }
 
 pub fn parse_url(raw: &str) -> Result<Url> {
     let raw = raw.trim();
-    let with_scheme = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
+    let with_scheme = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("https://{raw}")
+    };
     let url = Url::parse(&with_scheme).with_context(|| format!("invalid URL `{raw}`"))?;
     if url.scheme() != "http" && url.scheme() != "https" {
         bail!("URL must use http or https, got `{}`", url.scheme());
@@ -450,8 +579,8 @@ pub fn parse_color(raw: &str, what: &str) -> Result<u32> {
     u32::from_str_radix(&expanded, 16).with_context(|| format!("invalid {what} `{raw}`"))
 }
 
-/// Best-effort "site" domain: `en.m.wikipedia.org` → `wikipedia.org`,
-/// `shop.example.co.uk` → `example.co.uk`. IPs and single labels are kept as-is.
+/// Best-effort "site" domain: `en.m.wikipedia.org` -> `wikipedia.org`,
+/// `shop.example.co.uk` -> `example.co.uk`. IPs and single labels are kept as-is.
 fn registrable_domain(host: &str) -> String {
     if host.parse::<std::net::IpAddr>().is_ok() || host.starts_with('[') {
         return host.to_string();
@@ -461,8 +590,14 @@ fn registrable_domain(host: &str) -> String {
         return host.to_string();
     }
     let n = labels.len();
-    const SECOND_LEVEL: &[&str] = &["co", "com", "net", "org", "gov", "edu", "ac", "or", "ne", "go", "gob", "mil", "nic"];
-    let keep = if labels[n - 1].len() == 2 && SECOND_LEVEL.contains(&labels[n - 2]) { 3 } else { 2 };
+    const SECOND_LEVEL: &[&str] = &[
+        "co", "com", "net", "org", "gov", "edu", "ac", "or", "ne", "go", "gob", "mil", "nic",
+    ];
+    let keep = if labels[n - 1].len() == 2 && SECOND_LEVEL.contains(&labels[n - 2]) {
+        3
+    } else {
+        2
+    };
     labels[n.saturating_sub(keep)..].join(".")
 }
 
@@ -494,7 +629,13 @@ fn default_package(host: &str) -> String {
 fn sanitize_package_segment(s: &str) -> String {
     let mut out: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     if !out.starts_with(|c: char| c.is_ascii_alphabetic()) {
         out.insert(0, 'a');
@@ -514,7 +655,9 @@ pub fn validate_package(p: &str) -> Result<()> {
         let valid = s.starts_with(|c: char| c.is_ascii_alphabetic())
             && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !valid {
-            bail!("invalid package segment `{s}` in `{p}` (letters, digits and _ only; must start with a letter)");
+            bail!(
+                "invalid package segment `{s}` in `{p}` (letters, digits and _ only; must start with a letter)"
+            );
         }
         if JAVA_KEYWORDS.contains(&s) {
             bail!("package segment `{s}` in `{p}` is a reserved Java keyword");
@@ -524,12 +667,62 @@ pub fn validate_package(p: &str) -> Result<()> {
 }
 
 const JAVA_KEYWORDS: &[&str] = &[
-    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const",
-    "continue", "default", "do", "double", "else", "enum", "extends", "final", "finally", "float",
-    "for", "goto", "if", "implements", "import", "instanceof", "int", "interface", "long", "native",
-    "new", "package", "private", "protected", "public", "return", "short", "static", "strictfp",
-    "super", "switch", "synchronized", "this", "throw", "throws", "transient", "try", "void",
-    "volatile", "while", "true", "false", "null", "var", "record", "yield",
+    "abstract",
+    "assert",
+    "boolean",
+    "break",
+    "byte",
+    "case",
+    "catch",
+    "char",
+    "class",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extends",
+    "final",
+    "finally",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "implements",
+    "import",
+    "instanceof",
+    "int",
+    "interface",
+    "long",
+    "native",
+    "new",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "short",
+    "static",
+    "strictfp",
+    "super",
+    "switch",
+    "synchronized",
+    "this",
+    "throw",
+    "throws",
+    "transient",
+    "try",
+    "void",
+    "volatile",
+    "while",
+    "true",
+    "false",
+    "null",
+    "var",
+    "record",
+    "yield",
 ];
 
 pub fn init_template(url: &str) -> String {
@@ -538,6 +731,7 @@ pub fn init_template(url: &str) -> String {
 # Every key is optional except `url`; CLI flags override values in this file.
 
 url = "{url}"
+# platform = "android"    # android | ios (iOS builds need macOS + Xcode)
 # name = "My App"
 # package = "com.example.app"
 version_name = "1.0.0"
@@ -584,6 +778,13 @@ min_sdk = 21
 # keystore = "release.keystore"
 # key_alias = "release"
 # Passwords: set URL2APK_STORE_PASSWORD / URL2APK_KEY_PASSWORD env vars
+
+# --- iOS (used with platform = "ios" or --platform ios) ---
+# bundle_id = "com.example.app"   # default: package with `_` -> `-`
+# ios_min_version = "15.0"
+# simulator = false               # true: build a .app for the iOS Simulator
+# provisioning_profile = "MyApp.mobileprovision"   # needed to install on devices
+# signing_identity = "Apple Development"
 "##
     )
 }
@@ -627,8 +828,22 @@ mod tests {
     }
 
     #[test]
+    fn ios_values() {
+        assert!(is_numeric_version("1.2.0"));
+        assert!(is_numeric_version("15"));
+        assert!(!is_numeric_version("1.0.0-beta"));
+        assert!(!is_numeric_version("1.2.3.4"));
+        assert!(validate_bundle_id("com.my-site.app").is_ok());
+        assert!(validate_bundle_id("com.my_site.app").is_err());
+        assert!(validate_bundle_id("app").is_err());
+    }
+
+    #[test]
     fn urls() {
-        assert_eq!(parse_url("example.com").unwrap().as_str(), "https://example.com/");
+        assert_eq!(
+            parse_url("example.com").unwrap().as_str(),
+            "https://example.com/"
+        );
         assert!(parse_url("ftp://example.com").is_err());
     }
 }

@@ -1,4 +1,4 @@
-//! Launcher icon generation: legacy mipmaps plus an Android 8+ adaptive icon.
+//! App icons: Android legacy mipmaps + adaptive icon, and the iOS 1024px icon.
 
 use std::path::Path;
 
@@ -65,6 +65,37 @@ pub fn write_icons(
         foreground.save(dir.join("ic_launcher_foreground.png"))?;
     }
     Ok(IconOutput { adaptive_background })
+}
+
+/// Writes the single 1024x1024 iOS app icon. iOS masks the corners itself and
+/// rejects transparency, so the result is flattened onto an opaque background.
+pub fn write_ios_icon(path: &Path, source: Option<&Path>, theme_color: u32, icon_background: Option<u32>) -> Result<()> {
+    const SIZE: u32 = 1024;
+    let src = match source {
+        Some(p) => Some(image::open(p).with_context(|| format!("cannot read icon {}", p.display()))?.into_rgba8()),
+        None => None,
+    };
+    let (background, glyph) = match &src {
+        // An opaque icon brings its own background: fill the whole square.
+        Some(img) if is_opaque(img) => (icon_background.unwrap_or_else(|| to_argb(*img.get_pixel(0, 0))), fit(img, SIZE, SIZE)),
+        Some(img) => (icon_background.unwrap_or(0xFFFFFFFF), fit(img, SIZE, SIZE * 7 / 10)),
+        None => {
+            // Render the default glyph larger than the canvas and crop the center
+            // so the globe fills a sensible share of the icon.
+            const BIG: u32 = 1400;
+            let big = default_icon(BIG, theme_color, false);
+            let off = (BIG - SIZE) / 2;
+            (icon_background.unwrap_or(theme_color), imageops::crop_imm(&big, off, off, SIZE, SIZE).to_image())
+        }
+    };
+    let bg = Rgba([(background >> 16) as u8, (background >> 8) as u8, background as u8, 255]);
+    let mut out = RgbaImage::from_pixel(SIZE, SIZE, bg);
+    imageops::overlay(&mut out, &glyph, 0, 0);
+    image::DynamicImage::ImageRgba8(out)
+        .to_rgb8()
+        .save(path)
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(())
 }
 
 fn is_opaque(img: &RgbaImage) -> bool {

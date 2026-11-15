@@ -1,14 +1,13 @@
 # url2apk
 
-Turn any website into an installable Android app or iOS app (a WebView wrapper) with
-one command.
+Turn any website into an Android app or iOS app (a WebView wrapper) with one command.
 
 ```sh
 url2apk build https://example.com                                       # Android APK
 url2apk build https://example.com --platform ios --simulator --install  # iOS (macOS only)
 ```
 
-No Gradle, no Android Studio or Xcode project. The tool generates a tiny dependency-free
+No Gradle, no Android Studio or Xcode project. It generates a tiny dependency-free
 app and builds it directly with the platform tools:
 
 - **Android:** `aapt2` -> `javac` -> `d8` -> `zipalign` -> `apksigner`. A typical APK is
@@ -57,7 +56,7 @@ cargo install --path .
 ## Usage
 
 ```sh
-# Simplest: name, package and icon are derived from the domain
+# Simple: name, package and icon are derived from the domain
 url2apk build https://example.com
 
 # Customized
@@ -69,7 +68,7 @@ url2apk build https://example.com \
   --permission camera --permission location \
   --install            # adb install + launch on a connected device
 
-# The same app for iOS (on macOS)
+# For iOS (on macOS)
 url2apk build https://example.com --platform ios \
   --name "Example" --bundle-id com.example.app \
   --icon logo.png --theme-color "#0F9D58" \

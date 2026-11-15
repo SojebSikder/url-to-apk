@@ -60,6 +60,8 @@ enum Cmd {
     },
     /// Create a release keystore for signing your apps
     Keygen(KeygenArgs),
+    /// Print version information
+    Version,
 }
 
 #[derive(Args)]
@@ -130,7 +132,21 @@ fn run(cli: Cli) -> Result<()> {
         } => cmd_doctor_ios(),
         Cmd::Doctor { sdk, jdk, .. } => cmd_doctor(sdk.as_deref(), jdk.as_deref()),
         Cmd::Keygen(args) => cmd_keygen(args),
+        Cmd::Version => {
+            println!("{}", version_string());
+            Ok(())
+        }
     }
+}
+
+fn version_string() -> String {
+    format!(
+        "{} {} ({}-{})",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
 }
 
 fn cmd_build(args: BuildArgs) -> Result<()> {
@@ -383,6 +399,13 @@ mod tests {
         assert!(wf.contains("URL2APK_CONFIG: apps/shop.toml"));
         assert!(!wf.contains("URL2APK_CONFIG: url2apk.toml"));
         assert!(!wf.contains('\t'), "tabs are invalid YAML indentation");
+    }
+
+    #[test]
+    fn version_command() {
+        let cli = Cli::try_parse_from(["url-to-apk", "version"]).unwrap();
+        assert!(matches!(cli.command, Cmd::Version));
+        assert!(version_string().contains(env!("CARGO_PKG_VERSION")));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # url2apk
 
-Turn any website into an Android app or iOS app (a WebView wrapper) with one command.
+Convert any website into an Android app or iOS app (a WebView wrapper).
 
 ```sh
 url2apk build https://example.com                                       # Android APK
